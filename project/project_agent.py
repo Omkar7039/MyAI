@@ -5,6 +5,9 @@ from project.project_context import ProjectContextBuilder
 from project.project_retriever import ProjectRetriever
 from project.context_ranker import ContextRanker
 from project.multi_file_analyzer import MultiFileAnalyzer
+from memory.store import MemoryStore
+from memory.retriever import MemoryRetriever
+from memory.retriever import MemoryRetriever
 
 
 class ProjectAgent:
@@ -16,6 +19,12 @@ class ProjectAgent:
         self.retriever = ProjectRetriever(self.root)
         self.ranker = ContextRanker()
         self.flow_analyzer = MultiFileAnalyzer()
+        self.memory_store = MemoryStore(
+            self.root / "data" / "memory.db"
+        )
+        self.memory_retriever = MemoryRetriever(
+            self.memory_store
+        )
 
     def analyze(self, request: str):
         context = self.context_builder.build(self.root)
@@ -71,6 +80,12 @@ class ProjectAgent:
             symbols=relevant_symbols,
         )
 
+        memory = self._collect_memory(
+            request=request,
+            max_results=6,
+            max_chars=2400,
+        )
+
         flow = self._build_verified_flow(
             context,
             request,
@@ -81,8 +96,56 @@ class ProjectAgent:
             "files": relevant_files,
             "source_bundle": source_bundle,
             "relationships": relationships,
+            "memory": memory,
             "flow": flow,
         }
+
+    def _collect_memory(
+        self,
+        request,
+        max_results=6,
+        max_chars=2400,
+    ):
+        """
+        Retrieve persistent project-memory context.
+
+        Memory is supplemental context. It is never treated as
+        independently verified evidence.
+        """
+        results = self.memory_retriever.search(
+            request,
+            top_k=max_results,
+        )
+
+        selected = []
+        used = 0
+
+        for result in results:
+            chunk = result.chunk
+
+            text = (
+                f"[{chunk.file_path}:{chunk.start_line}-"
+                f"{chunk.end_line}] {chunk.kind}\n"
+                f"{chunk.content}\n"
+            )
+
+            if used + len(text) > max_chars:
+                continue
+
+            selected.append(
+                {
+                    "file": chunk.file_path,
+                    "start_line": chunk.start_line,
+                    "end_line": chunk.end_line,
+                    "kind": chunk.kind,
+                    "score": result.score,
+                    "content": chunk.content,
+                }
+            )
+
+            used += len(text)
+
+        return selected
 
     def _build_verified_flow(self, context, request):
         text = request.lower()
@@ -658,6 +721,29 @@ class ProjectAgent:
             )
 
         sections.append(
+            "\nPERSISTENT PROJECT MEMORY (SUPPLEMENTAL):"
+        )
+
+        memory_items = evidence.get("memory", [])
+
+        if memory_items:
+            for item in memory_items:
+                sections.append(
+                    "\n"
+                    f"[MEMORY] {item['file']}:"
+                    f"{item['start_line']}-{item['end_line']} "
+                    f"{item['kind']} "
+                    f"(retrieval_score={item['score']:.1f})\n"
+                    "```python\n"
+                    f"{item['content']}\n"
+                    "```"
+                )
+        else:
+            sections.append(
+                "- No persistent memory context was retrieved."
+            )
+
+        sections.append(
             "\nVERIFIED EXECUTION FLOW:"
         )
 
@@ -694,8 +780,11 @@ GROUNDING RULES:
    - INFERENCE
 5. When tracing execution, follow the supplied source and verified relationships.
 6. Do not use unrelated files merely because their names sound relevant.
-7. If the supplied evidence is insufficient, explicitly say what cannot be verified.
-8. Prefer exact file paths and symbol names in the answer.
+7. Treat PERSISTENT PROJECT MEMORY as supplemental retrieval context only.
+8. A memory chunk alone does not establish a VERIFIED FACT.
+9. Prefer VERIFIED SOURCE EVIDENCE and VERIFIED RELATIONSHIPS over memory context when they disagree.
+10. If the supplied evidence is insufficient, explicitly say what cannot be verified.
+11. Prefer exact file paths and symbol names in the answer.
 """
         )
 
