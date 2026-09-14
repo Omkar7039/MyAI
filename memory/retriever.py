@@ -109,6 +109,44 @@ class MemoryRetriever:
 
         return matches[:top_k]
 
+    def search_symbol_group(
+        self,
+        symbol: str,
+        max_segments: int = 8,
+    ) -> list[RetrievedChunk]:
+        """
+        Retrieve all persisted segments belonging to one symbol
+        in source order.
+        """
+        if not symbol or not symbol.strip():
+            return []
+
+        symbol = symbol.strip().lower()
+
+        matches = []
+
+        for file_path in self.store.document_paths():
+            for chunk in self.store.chunks_for_file(file_path):
+                kind = chunk.kind.lower()
+
+                if kind == f"function:{symbol}":
+                    matches.append(
+                        RetrievedChunk(
+                            chunk=chunk,
+                            score=200.0,
+                        )
+                    )
+
+        matches.sort(
+            key=lambda item: (
+                item.chunk.file_path,
+                item.chunk.start_line,
+                item.chunk.segment,
+            )
+        )
+
+        return matches[:max_segments]
+
     def format_results(
         self,
         results: list[RetrievedChunk],

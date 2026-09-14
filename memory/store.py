@@ -14,6 +14,7 @@ class MemoryChunk:
     end_line: int
     content: str
     kind: str = "code"
+    segment: int = 1
 
 
 class MemoryStore:
@@ -55,6 +56,7 @@ class MemoryStore:
                     end_line INTEGER NOT NULL,
                     content TEXT NOT NULL,
                     kind TEXT NOT NULL,
+                    segment INTEGER NOT NULL DEFAULT 1,
                     FOREIGN KEY(file_path)
                         REFERENCES documents(file_path)
                         ON DELETE CASCADE
@@ -75,6 +77,18 @@ class MemoryStore:
                 ON chunks(kind)
                 """
             )
+
+            columns = {
+                row[1]
+                for row in conn.execute(
+                    "PRAGMA table_info(chunks)"
+                ).fetchall()
+            }
+
+            if "segment" not in columns:
+                conn.execute(
+                    "ALTER TABLE chunks ADD COLUMN segment INTEGER NOT NULL DEFAULT 1"
+                )
 
     def upsert_document(
         self,
@@ -122,9 +136,10 @@ class MemoryStore:
                     start_line,
                     end_line,
                     content,
-                    kind
+                    kind,
+                    segment
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -134,6 +149,7 @@ class MemoryStore:
                         chunk.end_line,
                         chunk.content,
                         chunk.kind,
+                        chunk.segment,
                     )
                     for chunk in chunks
                 ],
@@ -173,7 +189,8 @@ class MemoryStore:
                     start_line,
                     end_line,
                     content,
-                    kind
+                    kind,
+                    segment
                 FROM chunks
                 WHERE file_path = ?
                 ORDER BY start_line
@@ -189,6 +206,7 @@ class MemoryStore:
                 end_line=row["end_line"],
                 content=row["content"],
                 kind=row["kind"],
+                segment=row["segment"],
             )
             for row in rows
         ]

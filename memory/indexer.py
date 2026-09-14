@@ -119,6 +119,7 @@ class ProjectMemoryIndexer:
                             if chunk.symbol
                             else chunk.kind
                         ),
+                        segment=chunk.segment,
                     )
                     for chunk in chunks
                 ]
