@@ -3,6 +3,7 @@ import re
 
 from experience.recorder import ExperienceRecorder
 from experience.retriever import ExperienceRetriever
+from experience.planner import ExperiencePlanner
 from tools.runner_manager import RunnerManager
 from verification.test_generator import TestGenerator
 from verification.mutation_engine import MutationEngine
@@ -38,6 +39,10 @@ class RepairAgent:
 
         self.experience_recorder = ExperienceRecorder()
         self.experience_retriever = ExperienceRetriever()
+        self.experience_planner = ExperiencePlanner(
+            self.experience_retriever,
+            max_chars=1600,
+        )
 
     def extract_code(
         self,
@@ -126,9 +131,14 @@ class RepairAgent:
             + "\n"
         )
 
-        experience_text = self._build_experience_context(
+        experience_guidance = self.experience_planner.plan(
             problem,
-            max_chars=1600,
+        )
+
+        experience_text = (
+            "\n"
+            + experience_guidance.text
+            + "\n"
         )
 
         prompt = (
