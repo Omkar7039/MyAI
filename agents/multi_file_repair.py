@@ -4,6 +4,9 @@ from pathlib import Path
 from core.model import LocalModel
 from project.patch_set import PatchSet
 from project.patch_validator import PatchValidator
+from experience.project_link_store import ExperienceProjectLinkStore
+from experience.store import ExperienceStore
+from experience.retriever import ExperienceRetriever
 
 
 class MultiFileRepairPlanner:
@@ -17,6 +20,15 @@ class MultiFileRepairPlanner:
         self.model = model or LocalModel()
         self.root = Path(root).expanduser().resolve()
         self.validator = PatchValidator(self.root)
+        self.experience_link_store = ExperienceProjectLinkStore(
+            self.root / "data" / "experience.db"
+        )
+        self.experience_store = ExperienceStore(
+            self.root / "data" / "experience.db"
+        )
+        self.experience_retriever = ExperienceRetriever(
+            self.experience_store
+        )
 
     def build_patch_set(
         self,
@@ -161,6 +173,13 @@ class MultiFileRepairPlanner:
             for value in plan.flow
         )
 
+        experience = self._collect_experience(
+            request=request,
+            plan=plan,
+            max_results=4,
+            max_chars=1800,
+        )
+
         return (
             "You are MyAI's multi-file repair planner.\n\n"
             "Return ONLY valid JSON.\n"
@@ -200,9 +219,86 @@ class MultiFileRepairPlanner:
             "GROUNDED EVIDENCE:\n"
             f"{evidence}\n\n"
 
+            "HISTORICAL EXPERIENCE:\n"
+            f"{experience}\n\n"
+
+            "The historical experience is advisory only. "
+            "Current source code, requirements, and verification results are authoritative.\n\n"
+
             "The original field MUST exactly match the current file."
         )
 
+    def _collect_experience(
+        self,
+        request,
+        plan,
+        max_results=4,
+        max_chars=1800,
+    ):
+        # Retrieve project-linked experience as advisory repair context.
+        candidates = {}
+
+        for link in self.experience_link_store.search_project(
+            str(self.root),
+            limit=50,
+        ):
+            candidates[link.experience_id] = link
+
+        for target in plan.targets:
+            for link in self.experience_link_store.search_symbol(
+                target.symbol,
+                limit=50,
+            ):
+                if link.project_root == str(self.root):
+                    candidates[link.experience_id] = link
+
+        for file_path in plan.affected_files:
+            for link in self.experience_link_store.search_file(
+                file_path,
+                limit=50,
+            ):
+                if link.project_root == str(self.root):
+                    candidates[link.experience_id] = link
+
+        if not candidates:
+            return 'No project-linked historical experience found.'
+
+        ranked = self.experience_retriever.search(
+            request,
+            limit=max_results,
+            include_failures=True,
+        )
+
+        linked = [
+            item
+            for item in ranked
+            if item.experience.experience_id in candidates
+        ]
+
+        if not linked:
+            return 'No relevant project-linked historical experience found.'
+
+        lines = [
+            'Project-linked history is advisory only.',
+        ]
+        used = len(lines[0]) + 1
+
+        for item in linked:
+            exp = item.experience
+            block = (
+                f'- Task: {exp.task}\n'
+                f'  Action: {exp.action}\n'
+                f'  Outcome: {exp.outcome}\n'
+                f'  Lesson: {exp.lesson}\n'
+            )
+
+            if used + len(block) > max_chars:
+                break
+
+            lines.append(block)
+            used += len(block)
+
+        return '\n'.join(lines)[:max_chars]
     def _parse_response(self, response):
         if not response:
             return None
