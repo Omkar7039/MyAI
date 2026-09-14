@@ -60,6 +60,12 @@ class ExperienceConfidenceCalculator:
 
         if applicability.applicable:
             reasons.append("Experience is applicable to the current task.")
+        else:
+            score -= 40.0
+            reasons.append(
+                "Experience is not applicable to the current task; "
+                "confidence is strongly reduced."
+            )
 
         if freshness.label == "fresh":
             reasons.append("Experience is recent.")
