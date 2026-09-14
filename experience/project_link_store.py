@@ -158,6 +158,51 @@ class ExperienceProjectLinkStore:
             for row in rows
         ]
 
+    def search_symbol(
+        self,
+        symbol: str,
+        limit: int = 50,
+    ) -> list[ExperienceProjectLink]:
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+
+        symbol = symbol.strip()
+
+        if not symbol:
+            return []
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    experience_id,
+                    project_root,
+                    file_paths,
+                    symbols,
+                    commit_id
+                FROM experience_project_links
+                WHERE
+                    symbols = ?
+                    OR symbols LIKE ?
+                    OR symbols LIKE ?
+                    OR symbols LIKE ?
+                ORDER BY experience_id
+                LIMIT ?
+                """,
+                (
+                    symbol,
+                    symbol + "\n%",
+                    "%\n" + symbol + "\n%",
+                    "%\n" + symbol,
+                    limit,
+                ),
+            ).fetchall()
+
+        return [
+            self._row_to_link(row)
+            for row in rows
+        ]
+
     def delete(self, experience_id: str) -> bool:
         with self._connect() as conn:
             cursor = conn.execute(

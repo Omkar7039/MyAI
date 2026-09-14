@@ -116,6 +116,7 @@ class ProjectAgent:
         experience = self._collect_project_experience(
             request=request,
             files=relevant_files,
+            symbols=relevant_symbols,
             max_results=4,
             max_chars=1800,
         )
@@ -134,18 +135,26 @@ class ProjectAgent:
         self,
         request,
         files,
+        symbols=None,
         max_results=4,
         max_chars=1800,
     ):
         """Retrieve project-linked historical experience as advisory context."""
+        symbols = symbols or []
         candidates = {}
 
-        for link in self.experience_link_store.search_project(
-            str(self.root),
-            limit=50,
-        ):
-            candidates[link.experience_id] = link
+        # Symbol-linked experience has the highest specificity.
+        for symbol in symbols:
+            symbol_name = getattr(symbol, "name", str(symbol))
 
+            for link in self.experience_link_store.search_symbol(
+                symbol_name,
+                limit=50,
+            ):
+                if link.project_root == str(self.root):
+                    candidates[link.experience_id] = link
+
+        # File-linked experience is the next-most-specific source.
         for file_path in files:
             for link in self.experience_link_store.search_file(
                 file_path,
@@ -153,6 +162,13 @@ class ProjectAgent:
             ):
                 if link.project_root == str(self.root):
                     candidates[link.experience_id] = link
+
+        # Project-linked experience is the broad fallback.
+        for link in self.experience_link_store.search_project(
+            str(self.root),
+            limit=50,
+        ):
+            candidates[link.experience_id] = link
 
         if not candidates:
             return {
