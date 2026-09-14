@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from experience.applicability import ExperienceApplicabilityFilter
 from experience.confidence import ExperienceConfidenceCalculator
+from experience.contradiction import ExperienceContradiction, ExperienceContradictionResolver
 from experience.conflict import ExperienceConflictDetector
 from experience.freshness import ExperienceFreshnessCalculator
 from experience.retriever import ExperienceRetriever
@@ -16,6 +17,7 @@ class ExperienceGuidance:
     warnings: list
     text: str
     confidences: list = field(default_factory=list)
+    contradiction: ExperienceContradiction | None = None
 
 
 class ExperiencePlanner:
@@ -37,6 +39,7 @@ class ExperiencePlanner:
         self.max_chars = max_chars
         self.applicability_filter = ExperienceApplicabilityFilter()
         self.conflict_detector = ExperienceConflictDetector()
+        self.contradiction_resolver = ExperienceContradictionResolver()
         self.confidence_calculator = ExperienceConfidenceCalculator()
         self.freshness_calculator = ExperienceFreshnessCalculator()
 
@@ -78,6 +81,11 @@ class ExperiencePlanner:
         ]
 
         conflict = self.conflict_detector.detect(
+            successful,
+            warnings,
+        )
+
+        contradiction = self.contradiction_resolver.resolve(
             successful,
             warnings,
         )
@@ -186,6 +194,22 @@ class ExperiencePlanner:
                 sections.append(conflict_block)
                 used += len(conflict_block)
 
+        if contradiction.detected and used < self.max_chars:
+            contradiction_block = (
+                "\nHISTORICAL CONTRADICTION ANALYSIS:\n"
+                + contradiction.recommendation
+            )
+
+            if contradiction.dimensions:
+                contradiction_block += (
+                    "\nDimensions: "
+                    + ", ".join(contradiction.dimensions)
+                )
+
+            if used + len(contradiction_block) <= self.max_chars:
+                sections.append(contradiction_block)
+                used += len(contradiction_block)
+
         sections.append(
             "\nUse historical guidance only as a hint. "
             "Do not copy an old solution blindly."
@@ -198,5 +222,6 @@ class ExperiencePlanner:
             successful=successful,
             warnings=warnings,
             confidences=confidences,
+            contradiction=contradiction,
             text=text[:self.max_chars],
         )
