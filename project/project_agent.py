@@ -8,6 +8,9 @@ from project.multi_file_analyzer import MultiFileAnalyzer
 from memory.store import MemoryStore
 from memory.retriever import MemoryRetriever
 from memory.context_assembler import MemoryContextAssembler
+from experience.project_link_store import ExperienceProjectLinkStore
+from experience.store import ExperienceStore
+from experience.retriever import ExperienceRetriever
 
 
 class ProjectAgent:
@@ -29,6 +32,15 @@ class ProjectAgent:
             self.memory_retriever,
             max_chars=2400,
             max_chunks=6,
+        )
+        self.experience_link_store = ExperienceProjectLinkStore(
+            self.root / "data" / "experience.db"
+        )
+        self.experience_store = ExperienceStore(
+            self.root / "data" / "experience.db"
+        )
+        self.experience_retriever = ExperienceRetriever(
+            self.experience_store
         )
 
     def analyze(self, request: str):
@@ -101,13 +113,91 @@ class ProjectAgent:
             request,
         )
 
+        experience = self._collect_project_experience(
+            request=request,
+            files=relevant_files,
+            max_results=4,
+            max_chars=1800,
+        )
+
         return {
             "symbols": relevant_symbols,
             "files": relevant_files,
             "source_bundle": source_bundle,
             "relationships": relationships,
             "memory": memory,
+            "experience": experience,
             "flow": flow,
+        }
+
+    def _collect_project_experience(
+        self,
+        request,
+        files,
+        max_results=4,
+        max_chars=1800,
+    ):
+        """Retrieve project-linked historical experience as advisory context."""
+        candidates = {}
+
+        for link in self.experience_link_store.search_project(
+            str(self.root),
+            limit=50,
+        ):
+            candidates[link.experience_id] = link
+
+        for file_path in files:
+            for link in self.experience_link_store.search_file(
+                file_path,
+                limit=50,
+            ):
+                if link.project_root == str(self.root):
+                    candidates[link.experience_id] = link
+
+        if not candidates:
+            return {
+                "items": [],
+                "text": "No project-linked experience was found.",
+            }
+
+        ranked = self.experience_retriever.search(
+            request,
+            limit=max_results,
+            include_failures=True,
+        )
+
+        linked = [
+            item
+            for item in ranked
+            if item.experience.experience_id in candidates
+        ]
+
+        lines = [
+            "PROJECT-LINKED HISTORICAL EXPERIENCE:",
+            "This is advisory context only.",
+            "Current project source code and verification results are authoritative.",
+        ]
+
+        used = sum(len(line) + 1 for line in lines)
+
+        for item in linked:
+            exp = item.experience
+            block = (
+                f"- {exp.task}\n"
+                f"  Action: {exp.action}\n"
+                f"  Outcome: {exp.outcome}\n"
+                f"  Lesson: {exp.lesson}\n"
+            )
+
+            if used + len(block) > max_chars:
+                break
+
+            lines.append(block)
+            used += len(block)
+
+        return {
+            "items": linked,
+            "text": "\n".join(lines)[:max_chars],
         }
 
     def _collect_memory(
