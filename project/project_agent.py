@@ -7,6 +7,7 @@ from project.context_ranker import ContextRanker
 from project.multi_file_analyzer import MultiFileAnalyzer
 from memory.store import MemoryStore
 from memory.retriever import MemoryRetriever
+from memory.retriever import MemoryRetriever
 
 
 class ProjectAgent:
@@ -37,6 +38,11 @@ class ProjectAgent:
             request=request,
             context=context,
             evidence=evidence,
+        )
+
+        prompt = self._apply_prompt_budget(
+            prompt,
+            max_chars=12000,
         )
 
         return self.model.ask(
@@ -665,6 +671,27 @@ class ProjectAgent:
             "indexed_files": len(files),
             "language_counts": language_counts,
         }
+
+    def _apply_prompt_budget(self, prompt, max_chars=12000):
+        if max_chars < 1:
+            raise ValueError("max_chars must be >= 1")
+
+        if len(prompt) <= max_chars:
+            return prompt
+
+        suffix = (
+            "\n\n"
+            "[SYSTEM] Context was truncated to remain within "
+            "the configured MyAI prompt budget. "
+            "Do not infer facts from omitted context."
+        )
+
+        allowed = max_chars - len(suffix)
+
+        if allowed <= 0:
+            return suffix[:max_chars]
+
+        return prompt[:allowed] + suffix
 
     def _build_prompt(self, request, context, evidence):
         summary = self._project_summary(context)
