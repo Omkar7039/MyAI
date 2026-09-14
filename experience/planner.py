@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from experience.applicability import ExperienceApplicabilityFilter
+from experience.conflict import ExperienceConflictDetector
 from experience.retriever import ExperienceRetriever
 
 
@@ -32,6 +33,7 @@ class ExperiencePlanner:
         self.retriever = retriever or ExperienceRetriever()
         self.max_chars = max_chars
         self.applicability_filter = ExperienceApplicabilityFilter()
+        self.conflict_detector = ExperienceConflictDetector()
 
     def plan(self, task: str) -> ExperienceGuidance:
         if not task or not task.strip():
@@ -69,6 +71,11 @@ class ExperiencePlanner:
                 item,
             ).applicable
         ]
+
+        conflict = self.conflict_detector.detect(
+            successful,
+            warnings,
+        )
 
         sections = [
             "HISTORICAL EXPERIENCE GUIDANCE:",
@@ -120,6 +127,13 @@ class ExperiencePlanner:
 
                 sections.append(block)
                 used += len(block)
+
+        if conflict.detected and used < self.max_chars:
+            conflict_block = "\n" + conflict.text
+
+            if used + len(conflict_block) <= self.max_chars:
+                sections.append(conflict_block)
+                used += len(conflict_block)
 
         sections.append(
             "\nUse historical guidance only as a hint. "
