@@ -1,6 +1,7 @@
 import ast
 import re
 
+from experience.recorder import ExperienceRecorder
 from tools.runner_manager import RunnerManager
 from verification.test_generator import TestGenerator
 from verification.mutation_engine import MutationEngine
@@ -33,6 +34,8 @@ class RepairAgent:
         self.property_engine = PropertyEngine(
             self.runner_manager
         )
+
+        self.experience_recorder = ExperienceRecorder()
 
     def extract_code(
         self,
@@ -288,6 +291,68 @@ class RepairAgent:
             "failure": "\n".join(failure_parts),
         }
 
+    def _record_experience(
+        self,
+        problem,
+        result,
+    ):
+        """
+        Record only the final verified outcome.
+
+        Historical experience is advisory and never determines
+        whether a repair is accepted.
+        """
+        success = bool(
+            result.get("success")
+            and result.get("verified")
+        )
+
+        attempts = result.get("attempts") or []
+
+        if success:
+            action = (
+                f"Repair completed after "
+                f"{len(attempts)} candidate attempt(s)."
+            )
+
+            outcome = (
+                "Final regression, mutation, and applicable "
+                "property verification passed."
+            )
+
+            lesson = (
+                "A repair candidate satisfied the current "
+                "verification gates for this task."
+            )
+        else:
+            action = (
+                f"Repair workflow completed after "
+                f"{len(attempts)} candidate attempt(s)."
+            )
+
+            outcome = result.get(
+                "reason",
+                "Repair did not pass final verification.",
+            )
+
+            lesson = (
+                "Treat this outcome as a warning. Recheck the "
+                "current source, requirements, and verification "
+                "results before repeating the approach."
+            )
+
+        try:
+            self.experience_recorder.record_repair(
+                task=problem,
+                action=action,
+                outcome=outcome,
+                success=success,
+                lesson=lesson,
+            )
+        except Exception:
+            # Experience memory must never break repair.
+            pass
+
     def repair_and_verify(
         self,
         code: str,
@@ -303,7 +368,7 @@ class RepairAgent:
         )
 
         if not tests:
-            return {
+            result = {
                 "success": False,
                 "verified": False,
                 "behavior_verified": False,
@@ -323,6 +388,9 @@ class RepairAgent:
                 "properties": None,
                 "strengthening": None,
             }
+
+            self._record_experience(problem, result)
+            return result
 
         # ---------------------------------------------------------
         # 2. Test original code.
@@ -437,7 +505,7 @@ class RepairAgent:
                 break
 
             if not repaired:
-                return {
+                result = {
                     "success": False,
                     "verified": False,
                     "behavior_verified": False,
@@ -458,6 +526,9 @@ class RepairAgent:
                     "strengthening": None,
                 }
 
+                self._record_experience(problem, result)
+                return result
+
         # ---------------------------------------------------------
         # 4. Candidate now passes initial tests.
         #    Strengthen those tests against THIS candidate.
@@ -468,7 +539,7 @@ class RepairAgent:
         )
 
         if not strengthening["success"]:
-            return {
+            result = {
                 "success": False,
                 "verified": False,
                 "behavior_verified": True,
@@ -489,6 +560,9 @@ class RepairAgent:
                 "properties": None,
                 "strengthening": strengthening,
             }
+
+            self._record_experience(problem, result)
+            return result
 
         tests = strengthening["tests"]
 
@@ -524,7 +598,7 @@ class RepairAgent:
             )
 
         if acceptance["accepted"]:
-            return {
+            result = {
                 "success": True,
                 "verified": True,
                 "behavior_verified": True,
@@ -550,7 +624,10 @@ class RepairAgent:
                 "strengthening": strengthening,
             }
 
-        return {
+            self._record_experience(problem, result)
+            return result
+
+        result = {
             "success": False,
             "verified": False,
             "behavior_verified": (
@@ -579,3 +656,6 @@ class RepairAgent:
             "properties": properties,
             "strengthening": strengthening,
         }
+
+        self._record_experience(problem, result)
+        return result
