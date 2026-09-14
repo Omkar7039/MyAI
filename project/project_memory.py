@@ -20,6 +20,7 @@ class ProjectSnapshot:
     call_nodes: int
     call_edges: int
     created_at: str
+    file_manifest: tuple[tuple[str, int], ...] = ()
 
 
 class ProjectMemoryStore:
@@ -46,21 +47,41 @@ class ProjectMemoryStore:
                     dependency_edges INTEGER NOT NULL,
                     call_nodes INTEGER NOT NULL,
                     call_edges INTEGER NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    file_manifest TEXT NOT NULL DEFAULT '[]'
                 )
                 '''
             )
+
+            columns = {
+                row[1]
+                for row in conn.execute(
+                    'PRAGMA table_info(project_snapshots)'
+                ).fetchall()
+            }
+
+            if 'file_manifest' not in columns:
+                conn.execute(
+                    "ALTER TABLE project_snapshots "
+                    "ADD COLUMN file_manifest TEXT NOT NULL DEFAULT '[]'"
+                )
+
             conn.commit()
 
     def save(self, snapshot: ProjectSnapshot) -> int:
+        manifest = json.dumps(
+            list(snapshot.file_manifest),
+            separators=(',', ':'),
+        )
+
         with self._connect() as conn:
             cursor = conn.execute(
                 '''
                 INSERT INTO project_snapshots (
                     project_root, fingerprint, total_files, total_bytes,
                     symbol_count, dependency_nodes, dependency_edges,
-                    call_nodes, call_edges, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    call_nodes, call_edges, created_at, file_manifest
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 (
                     snapshot.project_root,
@@ -73,6 +94,7 @@ class ProjectMemoryStore:
                     snapshot.call_nodes,
                     snapshot.call_edges,
                     snapshot.created_at,
+                    manifest,
                 ),
             )
             conn.commit()
@@ -84,7 +106,7 @@ class ProjectMemoryStore:
                 '''
                 SELECT project_root, fingerprint, total_files, total_bytes,
                        symbol_count, dependency_nodes, dependency_edges,
-                       call_nodes, call_edges, created_at
+                       call_nodes, call_edges, created_at, file_manifest
                 FROM project_snapshots
                 WHERE project_root = ?
                 ORDER BY id DESC
@@ -93,10 +115,7 @@ class ProjectMemoryStore:
                 (str(Path(project_root).expanduser().resolve()),),
             ).fetchone()
 
-        if row is None:
-            return None
-
-        return ProjectSnapshot(*row)
+        return self._row_to_snapshot(row)
 
     def history(self, project_root: str | Path, limit: int = 20):
         if limit < 1:
@@ -107,7 +126,7 @@ class ProjectMemoryStore:
                 '''
                 SELECT project_root, fingerprint, total_files, total_bytes,
                        symbol_count, dependency_nodes, dependency_edges,
-                       call_nodes, call_edges, created_at
+                       call_nodes, call_edges, created_at, file_manifest
                 FROM project_snapshots
                 WHERE project_root = ?
                 ORDER BY id DESC
@@ -116,7 +135,30 @@ class ProjectMemoryStore:
                 (str(Path(project_root).expanduser().resolve()), limit),
             ).fetchall()
 
-        return [ProjectSnapshot(*row) for row in rows]
+        return [self._row_to_snapshot(row) for row in rows]
+
+    def _row_to_snapshot(self, row):
+        if row is None:
+            return None
+
+        manifest = tuple(
+            (str(item[0]), int(item[1]))
+            for item in json.loads(row[10] or '[]')
+        )
+
+        return ProjectSnapshot(
+            project_root=row[0],
+            fingerprint=row[1],
+            total_files=row[2],
+            total_bytes=row[3],
+            symbol_count=row[4],
+            dependency_nodes=row[5],
+            dependency_edges=row[6],
+            call_nodes=row[7],
+            call_edges=row[8],
+            created_at=row[9],
+            file_manifest=manifest,
+        )
 
 
 class ProjectSnapshotBuilder:
@@ -128,7 +170,9 @@ class ProjectSnapshotBuilder:
         dependency_graph = context.dependency_graph
         call_graph = context.call_graph
 
-        total_files = int(getattr(report, 'total_files', len(getattr(report, 'files', []))))
+        total_files = int(
+            getattr(report, 'total_files', len(getattr(report, 'files', [])))
+        )
         total_bytes = int(getattr(report, 'total_bytes', 0))
         symbol_count = len(getattr(code_index, 'symbols', []))
         dependency_nodes = len(getattr(dependency_graph, 'nodes', {}))
@@ -139,23 +183,30 @@ class ProjectSnapshotBuilder:
         call_nodes = len(getattr(call_graph, 'nodes', {}))
         call_edges = len(getattr(call_graph, 'edges', []))
 
-        fingerprint_data = {
-            'root': root,
-            'files': [],
-        }
+        manifest = []
+        fingerprint_files = []
 
         for info in getattr(report, 'files', []):
-            fingerprint_data['files'].append(
+            path = str(getattr(info, 'path', ''))
+            size = int(getattr(info, 'size', 0))
+            language = str(getattr(info, 'language', ''))
+
+            manifest.append((path, size))
+            fingerprint_files.append(
                 {
-                    'path': str(getattr(info, 'path', '')),
-                    'size': int(getattr(info, 'size', 0)),
-                    'language': str(getattr(info, 'language', '')),
+                    'path': path,
+                    'size': size,
+                    'language': language,
                 }
             )
 
-        fingerprint_data['files'].sort(
-            key=lambda item: item['path']
-        )
+        manifest.sort(key=lambda item: item[0])
+        fingerprint_files.sort(key=lambda item: item['path'])
+
+        fingerprint_data = {
+            'root': root,
+            'files': fingerprint_files,
+        }
 
         payload = json.dumps(
             fingerprint_data,
@@ -164,7 +215,6 @@ class ProjectSnapshotBuilder:
         ).encode('utf-8')
 
         fingerprint = hashlib.sha256(payload).hexdigest()
-
         timestamp = created_at or datetime.now(timezone.utc).isoformat()
 
         return ProjectSnapshot(
@@ -178,4 +228,5 @@ class ProjectSnapshotBuilder:
             call_nodes=call_nodes,
             call_edges=call_edges,
             created_at=timestamp,
+            file_manifest=tuple(manifest),
         )
