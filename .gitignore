@@ -28,3 +28,7 @@ models/*.pth
 # Local MyAI memory database
 data/memory.db
 data/memory.db-*
+
+# Local MyAI experience memory database
+data/experience.db
+data/experience.db-*
