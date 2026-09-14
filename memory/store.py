@@ -208,6 +208,14 @@ class MemoryStore:
             ).fetchone()
 
         return int(row["count"])
+    def document_paths(self) -> set[str]:
+        """Return all indexed document paths."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT file_path FROM documents"
+            ).fetchall()
+
+        return {row["file_path"] for row in rows}
 
     def close(self) -> None:
         # Connections are short-lived and managed with context managers.
