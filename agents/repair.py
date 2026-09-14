@@ -4,6 +4,7 @@ import re
 from experience.recorder import ExperienceRecorder
 from experience.retriever import ExperienceRetriever
 from experience.planner import ExperiencePlanner
+from experience.provenance import ExperienceProvenance
 from tools.runner_manager import RunnerManager
 from verification.test_generator import TestGenerator
 from verification.mutation_engine import MutationEngine
@@ -440,6 +441,27 @@ class RepairAgent:
                 "results before repeating the approach."
             )
 
+        evidence = []
+
+        if result.get("behavior_verified"):
+            evidence.append("regression behavior verified")
+
+        if result.get("mutation_verified"):
+            evidence.append("mutation verification passed")
+
+        if (
+            result.get("property_available")
+            and result.get("property_verified")
+        ):
+            evidence.append("property verification passed")
+
+        provenance = ExperienceProvenance(
+            source="repair",
+            workflow="repair_and_verify",
+            evidence=tuple(evidence),
+            verified=success,
+        )
+
         try:
             self.experience_recorder.record_repair(
                 task=problem,
@@ -447,6 +469,7 @@ class RepairAgent:
                 outcome=outcome,
                 success=success,
                 lesson=lesson,
+                provenance=provenance,
             )
         except Exception:
             # Experience memory must never break repair.
