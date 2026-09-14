@@ -237,6 +237,32 @@ class ProjectMemoryIndexer:
             ),
         }
 
+    def ensure_fresh(self) -> dict:
+        """
+        Refresh only stale/new files and remove deleted files.
+
+        Returns the freshness state after the refresh.
+        """
+        before = self.freshness()
+
+        if before["up_to_date"]:
+            return {
+                "refreshed": False,
+                "before": before,
+                "after": before,
+                "result": None,
+            }
+
+        result = self.index(force=False)
+        after = self.freshness()
+
+        return {
+            "refreshed": True,
+            "before": before,
+            "after": after,
+            "result": result,
+        }
+
     def _iter_source_files(self):
         for path in self.root.rglob("*"):
             if not path.is_file():
