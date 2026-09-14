@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from experience.freshness import ExperienceFreshnessCalculator
 from experience.store import Experience, ExperienceStore
 
 
@@ -27,6 +28,7 @@ class ExperienceRetriever:
         self.store = store or ExperienceStore(
             "data/experience.db"
         )
+        self.freshness_calculator = ExperienceFreshnessCalculator()
 
     def search(
         self,
@@ -182,8 +184,28 @@ class ExperienceRetriever:
 
         return bonus
 
-    @staticmethod
+    def _freshness_bonus(
+        self,
+        experience: Experience,
+    ) -> float:
+        result = RetrievedExperience(
+            experience=experience,
+            score=0.0,
+        )
+
+        freshness = self.freshness_calculator.calculate(
+            result
+        )
+
+        # Freshness is intentionally bounded so relevance and
+        # experience quality remain stronger ranking signals.
+        return min(
+            5.0,
+            freshness.score * 5.0,
+        )
+
     def _score(
+        self,
         query_tokens: set[str],
         experience: Experience,
     ) -> float:
@@ -219,8 +241,10 @@ class ExperienceRetriever:
         if query_tokens.intersection(category_tokens):
             score += 10.0
 
-        return score + ExperienceRetriever._quality_bonus(
-            experience
+        return (
+            score
+            + ExperienceRetriever._quality_bonus(experience)
+            + self._freshness_bonus(experience)
         )
 
     @staticmethod

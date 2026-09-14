@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from experience.retriever import RetrievedExperience
+from experience.store import Experience
 
 
 @dataclass(frozen=True)
@@ -20,11 +20,15 @@ class ExperienceFreshnessCalculator:
 
     def calculate(
         self,
-        result: RetrievedExperience,
+        experience: Experience,
         now: datetime | None = None,
     ) -> ExperienceFreshness:
         current = now or datetime.now(timezone.utc)
-        created_at = result.experience.created_at
+
+        if hasattr(experience, "experience"):
+            experience = experience.experience
+
+        created_at = experience.created_at
 
         if not created_at:
             return ExperienceFreshness(

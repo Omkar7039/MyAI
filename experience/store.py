@@ -83,9 +83,12 @@ class ExperienceStore:
                     outcome,
                     success,
                     lesson,
-                    metadata
+                    metadata,
+                    created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+                    COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP)
+                )
                 """,
                 (
                     experience.experience_id,
@@ -96,6 +99,7 @@ class ExperienceStore:
                     int(experience.success),
                     experience.lesson,
                     experience.metadata,
+                    experience.created_at,
                 ),
             )
 
