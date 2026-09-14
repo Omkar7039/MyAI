@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 from experience.applicability import ExperienceApplicabilityFilter
 from experience.confidence import ExperienceConfidenceCalculator
+from experience.consolidator import ExperienceConsolidation, ExperienceConsolidator
+from experience.consolidator import ExperienceConsolidation, ExperienceConsolidator
 from experience.contradiction import ExperienceContradiction, ExperienceContradictionResolver
 from experience.conflict import ExperienceConflictDetector
 from experience.freshness import ExperienceFreshnessCalculator
@@ -18,6 +20,8 @@ class ExperienceGuidance:
     text: str
     confidences: list = field(default_factory=list)
     contradiction: ExperienceContradiction | None = None
+    consolidation: ExperienceConsolidation | None = None
+    consolidation: ExperienceConsolidation | None = None
 
 
 class ExperiencePlanner:
@@ -40,6 +44,8 @@ class ExperiencePlanner:
         self.applicability_filter = ExperienceApplicabilityFilter()
         self.conflict_detector = ExperienceConflictDetector()
         self.contradiction_resolver = ExperienceContradictionResolver()
+        self.consolidator = ExperienceConsolidator()
+        self.consolidator = ExperienceConsolidator()
         self.confidence_calculator = ExperienceConfidenceCalculator()
         self.freshness_calculator = ExperienceFreshnessCalculator()
 
@@ -88,6 +94,11 @@ class ExperiencePlanner:
         contradiction = self.contradiction_resolver.resolve(
             successful,
             warnings,
+        )
+
+        consolidation = self.consolidator.consolidate(
+            successful + warnings,
+            max_chars=min(900, self.max_chars),
         )
 
         confidences = []
@@ -194,6 +205,13 @@ class ExperiencePlanner:
                 sections.append(conflict_block)
                 used += len(conflict_block)
 
+        if consolidation.experience_ids and used < self.max_chars:
+            consolidation_block = "\n" + consolidation.summary
+
+            if used + len(consolidation_block) <= self.max_chars:
+                sections.append(consolidation_block)
+                used += len(consolidation_block)
+
         if contradiction.detected and used < self.max_chars:
             contradiction_block = (
                 "\nHISTORICAL CONTRADICTION ANALYSIS:\n"
@@ -210,6 +228,13 @@ class ExperiencePlanner:
                 sections.append(contradiction_block)
                 used += len(contradiction_block)
 
+        if consolidation.experience_ids and used < self.max_chars:
+            consolidation_block = "\n" + consolidation.summary
+
+            if used + len(consolidation_block) <= self.max_chars:
+                sections.append(consolidation_block)
+                used += len(consolidation_block)
+
         sections.append(
             "\nUse historical guidance only as a hint. "
             "Do not copy an old solution blindly."
@@ -223,5 +248,6 @@ class ExperiencePlanner:
             warnings=warnings,
             confidences=confidences,
             contradiction=contradiction,
+            consolidation=consolidation,
             text=text[:self.max_chars],
         )
