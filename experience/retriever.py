@@ -78,6 +78,8 @@ class ExperienceRetriever:
             )
         )
 
+        results = self._deduplicate(results)
+
         return results[:limit]
 
     def successful(
@@ -109,6 +111,38 @@ class ExperienceRetriever:
         ]
 
         return results[:limit]
+
+    @staticmethod
+    def _experience_key(experience: Experience) -> str:
+        return "|".join(
+            [
+                experience.task.strip().lower(),
+                experience.action.strip().lower(),
+                experience.outcome.strip().lower(),
+                str(experience.success),
+                experience.lesson.strip().lower(),
+            ]
+        )
+
+    @staticmethod
+    def _deduplicate(
+        results: list[RetrievedExperience],
+    ) -> list[RetrievedExperience]:
+        seen = set()
+        output = []
+
+        for result in results:
+            key = ExperienceRetriever._experience_key(
+                result.experience
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            output.append(result)
+
+        return output
 
     @staticmethod
     def _score(
