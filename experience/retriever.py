@@ -145,6 +145,44 @@ class ExperienceRetriever:
         return output
 
     @staticmethod
+    def _quality_bonus(experience: Experience) -> float:
+        """Add a deterministic ranking bonus for durable experiences."""
+        bonus = 0.0
+
+        if experience.success:
+            bonus += 10.0
+
+        outcome = experience.outcome.lower()
+        lesson = experience.lesson.lower()
+        action = experience.action.lower()
+
+        verification_terms = (
+            "verified",
+            "verification",
+            "regression",
+            "mutation",
+            "property",
+            "test",
+            "tests passed",
+        )
+
+        evidence_hits = sum(
+            1
+            for term in verification_terms
+            if term in outcome or term in lesson
+        )
+
+        bonus += min(evidence_hits * 4.0, 16.0)
+
+        if len(action) >= 40:
+            bonus += 3.0
+
+        if len(lesson) >= 40:
+            bonus += 3.0
+
+        return bonus
+
+    @staticmethod
     def _score(
         query_tokens: set[str],
         experience: Experience,
@@ -181,7 +219,9 @@ class ExperienceRetriever:
         if query_tokens.intersection(category_tokens):
             score += 10.0
 
-        return score
+        return score + ExperienceRetriever._quality_bonus(
+            experience
+        )
 
     @staticmethod
     def _tokens(text: str) -> set[str]:
