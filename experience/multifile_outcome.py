@@ -64,15 +64,27 @@ class MultiFileRepairOutcomeRecorder:
 
             action = (
                 f"Multi-file patch workflow processed "
-                f"{len(applied_files)} file(s)."
+                f"{len(applied_files)} file(s) before the final "
+                f"verification stage reported a failure."
             )
+
             outcome = (
-                reason
-                or "Multi-file patch application did not complete successfully."
+                "Multi-file patch application failed during final "
+                "verification. "
+                + (
+                    reason
+                    if reason
+                    else (
+                        "The final verification stage did not accept "
+                        "the resulting repository state."
+                    )
+                )
             )
+
             lesson = (
-                "Treat failed multi-file changes as warnings and recheck "
-                "the current source, plan, and verification results."
+                "Treat failed multi-file changes as warnings. Recheck "
+                "the current source, change plan, patch scope, and "
+                "verification results before repeating the approach."
             )
 
         evidence = []

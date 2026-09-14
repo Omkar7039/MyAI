@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from agents.multi_file_repair import MultiFileRepairPlanner
 from experience.multifile_outcome import MultiFileRepairOutcomeRecorder
 from project.patch_applier import PatchApplier
