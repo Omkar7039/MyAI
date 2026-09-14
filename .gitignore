@@ -24,3 +24,7 @@ models/*.pth
 
 # Local backup snapshots
 *.backup
+
+# Local MyAI memory database
+data/memory.db
+data/memory.db-*
