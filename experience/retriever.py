@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 
@@ -184,6 +185,62 @@ class ExperienceRetriever:
 
         return bonus
 
+    @staticmethod
+    def _provenance_bonus(
+        experience: Experience,
+    ) -> float:
+        metadata = experience.metadata.strip()
+
+        if not metadata:
+            return 0.0
+
+        try:
+            payload = json.loads(metadata)
+        except (json.JSONDecodeError, TypeError):
+            return 0.0
+
+        provenance = payload.get("provenance")
+
+        if not isinstance(provenance, dict):
+            return 0.0
+
+        bonus = 0.0
+
+        if provenance.get("verified") is True:
+            bonus += 4.0
+
+        source = str(
+            provenance.get("source", "")
+        ).strip().lower()
+
+        workflow = str(
+            provenance.get("workflow", "")
+        ).strip().lower()
+
+        evidence = provenance.get("evidence", [])
+
+        if source == "repair":
+            bonus += 1.0
+
+        if workflow == "repair_and_verify":
+            bonus += 1.0
+
+        if isinstance(evidence, list):
+            bonus += min(
+                3.0,
+                len(
+                    [
+                        item
+                        for item in evidence
+                        if isinstance(item, str)
+                        and item.strip()
+                    ]
+                ),
+            )
+
+        return min(8.0, bonus)
+
+
     def _freshness_bonus(
         self,
         experience: Experience,
@@ -245,6 +302,7 @@ class ExperienceRetriever:
             score
             + ExperienceRetriever._quality_bonus(experience)
             + self._freshness_bonus(experience)
+            + ExperienceRetriever._provenance_bonus(experience)
         )
 
     @staticmethod
