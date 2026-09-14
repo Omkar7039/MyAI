@@ -16,6 +16,7 @@ class Experience:
     lesson: str
     metadata: str = ""
     created_at: str = ""
+    lifecycle_state: str = "active"
 
 
 class ExperienceStore:
@@ -52,7 +53,8 @@ class ExperienceStore:
                     success INTEGER NOT NULL,
                     lesson TEXT NOT NULL,
                     metadata TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    lifecycle_state TEXT NOT NULL DEFAULT 'active'
                 )
                 """
             )
@@ -71,6 +73,19 @@ class ExperienceStore:
                 """
             )
 
+            columns = {
+                row["name"]
+                for row in conn.execute(
+                    "PRAGMA table_info(experiences)"
+                ).fetchall()
+            }
+
+            if "lifecycle_state" not in columns:
+                conn.execute(
+                    "ALTER TABLE experiences "
+                    "ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'active'"
+                )
+
     def add(self, experience: Experience) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -84,10 +99,12 @@ class ExperienceStore:
                     success,
                     lesson,
                     metadata,
-                    created_at
+                    created_at,
+                    lifecycle_state
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?,
-                    COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP)
+                    COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP),
+                    ?
                 )
                 """,
                 (
@@ -100,6 +117,7 @@ class ExperienceStore:
                     experience.lesson,
                     experience.metadata,
                     experience.created_at,
+                    experience.lifecycle_state,
                 ),
             )
 
@@ -119,7 +137,8 @@ class ExperienceStore:
                     success,
                     lesson,
                     metadata,
-                    created_at
+                    created_at,
+                    lifecycle_state
                 FROM experiences
                 WHERE experience_id = ?
                 """,
@@ -150,8 +169,10 @@ class ExperienceStore:
                     success,
                     lesson,
                     metadata,
-                    created_at
+                    created_at,
+                    lifecycle_state
                 FROM experiences
+                WHERE lifecycle_state = 'active'
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,
@@ -188,14 +209,17 @@ class ExperienceStore:
                     success,
                     lesson,
                     metadata,
-                    created_at
+                    created_at,
+                    lifecycle_state
                 FROM experiences
-                WHERE
+                WHERE lifecycle_state = 'active'
+                  AND (
                     task LIKE ?
                     OR category LIKE ?
                     OR action LIKE ?
                     OR outcome LIKE ?
                     OR lesson LIKE ?
+                  )
                 ORDER BY
                     success DESC,
                     created_at DESC
@@ -215,6 +239,29 @@ class ExperienceStore:
             self._row_to_experience(row)
             for row in rows
         ]
+
+    def archive(self, experience_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE experiences
+                SET lifecycle_state = 'archived'
+                WHERE experience_id = ?
+                  AND lifecycle_state = 'active'
+                """,
+                (experience_id,),
+            )
+
+        return cursor.rowcount > 0
+
+    def delete(self, experience_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM experiences WHERE experience_id = ?",
+                (experience_id,),
+            )
+
+        return cursor.rowcount > 0
 
     def count(self) -> int:
         with self._connect() as conn:
@@ -240,4 +287,5 @@ class ExperienceStore:
             lesson=row["lesson"],
             metadata=row["metadata"],
             created_at=row["created_at"],
+            lifecycle_state=row["lifecycle_state"],
         )
