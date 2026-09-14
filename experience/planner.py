@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from experience.applicability import ExperienceApplicabilityFilter
 from experience.retriever import ExperienceRetriever
 
 
@@ -30,6 +31,7 @@ class ExperiencePlanner:
 
         self.retriever = retriever or ExperienceRetriever()
         self.max_chars = max_chars
+        self.applicability_filter = ExperienceApplicabilityFilter()
 
     def plan(self, task: str) -> ExperienceGuidance:
         if not task or not task.strip():
@@ -40,15 +42,33 @@ class ExperiencePlanner:
                 text="",
             )
 
-        successful = self.retriever.successful(
+        retrieved_successful = self.retriever.successful(
             task,
             limit=3,
         )
 
-        warnings = self.retriever.warnings(
+        retrieved_warnings = self.retriever.warnings(
             task,
             limit=3,
         )
+
+        successful = [
+            item
+            for item in retrieved_successful
+            if self.applicability_filter.evaluate(
+                task,
+                item,
+            ).applicable
+        ]
+
+        warnings = [
+            item
+            for item in retrieved_warnings
+            if self.applicability_filter.evaluate(
+                task,
+                item,
+            ).applicable
+        ]
 
         sections = [
             "HISTORICAL EXPERIENCE GUIDANCE:",
