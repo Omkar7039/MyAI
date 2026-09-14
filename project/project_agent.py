@@ -11,6 +11,9 @@ from memory.context_assembler import MemoryContextAssembler
 from experience.project_link_store import ExperienceProjectLinkStore
 from experience.store import ExperienceStore
 from experience.retriever import ExperienceRetriever
+from project.project_memory import ProjectMemoryStore
+from project.project_state import ProjectStateManager
+from project.project_state_context import ProjectStateContextBuilder
 
 
 class ProjectAgent:
@@ -41,6 +44,16 @@ class ProjectAgent:
         )
         self.experience_retriever = ExperienceRetriever(
             self.experience_store
+        )
+
+        self.project_memory_store = ProjectMemoryStore(
+            self.root / "data" / "project_memory.db"
+        )
+        self.project_state_manager = ProjectStateManager(
+            self.project_memory_store
+        )
+        self.project_state_context = ProjectStateContextBuilder(
+            self.project_state_manager
         )
 
     def analyze(self, request: str):
@@ -121,6 +134,11 @@ class ProjectAgent:
             max_chars=1800,
         )
 
+        project_state = self._collect_project_state(
+            context=context,
+            max_chars=1800,
+        )
+
         return {
             "symbols": relevant_symbols,
             "files": relevant_files,
@@ -128,7 +146,25 @@ class ProjectAgent:
             "relationships": relationships,
             "memory": memory,
             "experience": experience,
+            "project_state": project_state,
             "flow": flow,
+        }
+
+    def _collect_project_state(
+        self,
+        context,
+        max_chars=1800,
+    ):
+        state_context = self.project_state_context.build(
+            context,
+            max_chars=max_chars,
+        )
+
+        return {
+            "text": state_context.render(),
+            "changed_files": state_context.changed_files,
+            "current_snapshot": state_context.current_snapshot,
+            "previous_snapshot": state_context.previous_snapshot,
         }
 
     def _collect_project_experience(
