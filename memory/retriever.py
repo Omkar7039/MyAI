@@ -151,39 +151,66 @@ class MemoryRetriever:
         kind = chunk.kind.lower()
 
         score = 0.0
+        normalized_query = query.strip().lower()
 
-        normalized_query = query.lower()
+        # Memory chunks store symbols as:
+        #   function:Class.method
+        #   class:Class
+        symbol = ""
+        if ":" in kind:
+            symbol = kind.split(":", 1)[1].strip()
 
-        # Strongest signal: exact phrase in the chunk.
-        if normalized_query in text:
-            score += 40.0
+        # ---------------------------------------------------------
+        # Exact symbol matching: strongest possible signal.
+        # ---------------------------------------------------------
+        if symbol:
+            if normalized_query == symbol:
+                return 200.0
 
+            if normalized_query in symbol:
+                score += 100.0
+
+        # Exact symbol tokens should strongly favor the symbol itself.
+        symbol_tokens = self._tokens(symbol)
+
+        for token in query_tokens:
+            if token in symbol_tokens:
+                score += 25.0
+
+        # ---------------------------------------------------------
+        # Exact phrase in source.
+        # ---------------------------------------------------------
+        if normalized_query and normalized_query in text:
+            score += 30.0
+
+        # ---------------------------------------------------------
         # File/path relevance.
+        # ---------------------------------------------------------
+        path_name = file_path.rsplit("/", 1)[-1]
+
+        if normalized_query and normalized_query in path_name:
+            score += 20.0
+
         for token in query_tokens:
             if token in file_path:
-                score += 12.0
+                score += 8.0
 
-        # Symbol/kind relevance.
-        for token in query_tokens:
-            if token in kind:
-                score += 20.0
-
-        # Content token overlap.
+        # ---------------------------------------------------------
+        # Content relevance.
+        # Keep this deliberately weaker than symbol relevance.
+        # ---------------------------------------------------------
         content_tokens = self._tokens(text)
+        matched = query_tokens.intersection(content_tokens)
 
-        for token in query_tokens:
-            if token in content_tokens:
-                score += 5.0
+        score += min(20.0, len(matched) * 3.0)
 
-        # Small bonus for multiple matching query tokens.
-        overlap = query_tokens.intersection(content_tokens)
+        # Multiple matching terms provide a small additional signal.
+        if len(matched) >= 2:
+            score += min(10.0, len(matched) * 2.0)
 
-        if len(overlap) >= 2:
-            score += min(15.0, len(overlap) * 2.5)
-
-        # Favor meaningful code chunks over generic blocks.
+        # Prefer executable symbols over generic chunks.
         if kind.startswith("function:"):
-            score += 2.0
+            score += 3.0
         elif kind.startswith("class:"):
             score += 1.0
 
