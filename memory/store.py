@@ -206,9 +206,10 @@ class MemoryStore:
             row = conn.execute(
                 "SELECT COUNT(*) AS count FROM chunks"
             ).fetchone()
-
         return int(row["count"])
+
     def document_paths(self) -> set[str]:
+
         """Return all indexed document paths."""
         with self._connect() as conn:
             rows = conn.execute(
