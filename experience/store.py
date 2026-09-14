@@ -74,7 +74,7 @@ class ExperienceStore:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO experiences (
+ INSERT OR IGNORE INTO experiences (
                     experience_id,
                     task,
                     category,
