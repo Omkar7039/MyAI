@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from experience.applicability import ExperienceApplicabilityFilter
+from experience.confidence import ExperienceConfidenceCalculator
 from experience.conflict import ExperienceConflictDetector
+from experience.freshness import ExperienceFreshnessCalculator
 from experience.retriever import ExperienceRetriever
 
 
@@ -13,6 +15,7 @@ class ExperienceGuidance:
     successful: list
     warnings: list
     text: str
+    confidences: list = field(default_factory=list)
 
 
 class ExperiencePlanner:
@@ -34,6 +37,8 @@ class ExperiencePlanner:
         self.max_chars = max_chars
         self.applicability_filter = ExperienceApplicabilityFilter()
         self.conflict_detector = ExperienceConflictDetector()
+        self.confidence_calculator = ExperienceConfidenceCalculator()
+        self.freshness_calculator = ExperienceFreshnessCalculator()
 
     def plan(self, task: str) -> ExperienceGuidance:
         if not task or not task.strip():
@@ -77,6 +82,31 @@ class ExperiencePlanner:
             warnings,
         )
 
+        confidences = []
+
+        for item in successful + warnings:
+            applicability = self.applicability_filter.evaluate(
+                task,
+                item,
+            )
+
+            freshness = self.freshness_calculator.calculate(
+                item.experience,
+            )
+
+            confidence = self.confidence_calculator.calculate(
+                item,
+                applicability,
+                freshness,
+                conflict=conflict,
+            )
+
+            confidences.append(
+                (item.experience.experience_id, confidence)
+            )
+
+        confidence_by_id = dict(confidences)
+
         sections = [
             "HISTORICAL EXPERIENCE GUIDANCE:",
             "This is advisory context only.",
@@ -92,11 +122,22 @@ class ExperiencePlanner:
             for item in successful:
                 exp = item.experience
 
+                confidence = confidence_by_id.get(
+                    exp.experience_id
+                )
+
+                confidence_line = (
+                    f"  Confidence: {confidence.label} ({confidence.score:.1f})\n"
+                    if confidence is not None
+                    else ""
+                )
+
                 block = (
                     f"- {exp.task}\n"
-                    f"  Action: {exp.action}\n"
-                    f"  Outcome: {exp.outcome}\n"
-                    f"  Lesson: {exp.lesson}\n"
+                    + confidence_line
+                    + f"  Action: {exp.action}\n"
+                    + f"  Outcome: {exp.outcome}\n"
+                    + f"  Lesson: {exp.lesson}\n"
                 )
 
                 if used + len(block) > self.max_chars:
@@ -114,6 +155,16 @@ class ExperiencePlanner:
 
             for item in warnings:
                 exp = item.experience
+
+                confidence = confidence_by_id.get(
+                    exp.experience_id
+                )
+
+                confidence_line = (
+                    f"  Confidence: {confidence.label} ({confidence.score:.1f})\n"
+                    if confidence is not None
+                    else ""
+                )
 
                 block = (
                     f"- {exp.task}\n"
@@ -146,5 +197,6 @@ class ExperiencePlanner:
             task=task,
             successful=successful,
             warnings=warnings,
+            confidences=confidences,
             text=text[:self.max_chars],
         )
