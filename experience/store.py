@@ -15,6 +15,7 @@ class Experience:
     success: bool
     lesson: str
     metadata: str = ""
+    created_at: str = ""
 
 
 class ExperienceStore:
@@ -74,7 +75,7 @@ class ExperienceStore:
         with self._connect() as conn:
             conn.execute(
                 """
- INSERT OR IGNORE INTO experiences (
+                INSERT OR IGNORE INTO experiences (
                     experience_id,
                     task,
                     category,
@@ -113,7 +114,8 @@ class ExperienceStore:
                     outcome,
                     success,
                     lesson,
-                    metadata
+                    metadata,
+                    created_at
                 FROM experiences
                 WHERE experience_id = ?
                 """,
@@ -143,7 +145,8 @@ class ExperienceStore:
                     outcome,
                     success,
                     lesson,
-                    metadata
+                    metadata,
+                    created_at
                 FROM experiences
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -180,7 +183,8 @@ class ExperienceStore:
                     outcome,
                     success,
                     lesson,
-                    metadata
+                    metadata,
+                    created_at
                 FROM experiences
                 WHERE
                     task LIKE ?
@@ -231,4 +235,5 @@ class ExperienceStore:
             success=bool(row["success"]),
             lesson=row["lesson"],
             metadata=row["metadata"],
+            created_at=row["created_at"],
         )
