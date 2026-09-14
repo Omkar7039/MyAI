@@ -7,7 +7,6 @@ from project.context_ranker import ContextRanker
 from project.multi_file_analyzer import MultiFileAnalyzer
 from memory.store import MemoryStore
 from memory.retriever import MemoryRetriever
-from memory.retriever import MemoryRetriever
 
 
 class ProjectAgent:
