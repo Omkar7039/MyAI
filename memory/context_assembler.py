@@ -123,9 +123,114 @@ class MemoryContextAssembler:
             max_segments=limit,
         )
 
-        return self._build_context(
+        return self._build_symbol_context(
             query=symbol,
             results=results,
+        )
+
+    def _build_symbol_context(
+        self,
+        query: str,
+        results: list[RetrievedChunk],
+    ) -> MemoryContext:
+        """
+        Preserve segment order for an exact symbol.
+
+        When a symbol is larger than the context budget, retain every
+        segment in source order and truncate each returned chunk's
+        content so the actual chunks respect the same budget.
+        """
+        results = self._order_results(results)
+
+        if not results:
+            return MemoryContext(
+                query=query,
+                chunks=[],
+                text="",
+                total_chars=0,
+            )
+
+        results = results[: self.max_chunks]
+
+        headers = []
+
+        for result in results:
+            chunk = result.chunk
+
+            headers.append(
+                f"[{chunk.file_path}:"
+                f"{chunk.start_line}-{chunk.end_line}] "
+                f"{chunk.kind} "
+                f"segment={chunk.segment} "
+                f"score={result.score:.1f}\\n"
+            )
+
+        separator_budget = max(
+            0,
+            (len(results) - 1) * 2,
+        )
+
+        header_budget = sum(
+            len(header)
+            for header in headers
+        )
+
+        available_content = max(
+            0,
+            self.max_chars
+            - header_budget
+            - separator_budget,
+        )
+
+        base = available_content // len(results)
+        remainder = available_content % len(results)
+
+        selected = []
+        blocks = []
+
+        for index, result in enumerate(results):
+            chunk = result.chunk
+
+            content_limit = base + (
+                1 if index < remainder else 0
+            )
+
+            content = chunk.content[:content_limit]
+
+            # MemoryChunk is frozen, so construct a bounded copy.
+            bounded_chunk = type(chunk)(
+                chunk_id=chunk.chunk_id,
+                file_path=chunk.file_path,
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+                content=content,
+                kind=chunk.kind,
+                segment=chunk.segment,
+            )
+
+            bounded_result = RetrievedChunk(
+                chunk=bounded_chunk,
+                score=result.score,
+            )
+
+            selected.append(bounded_result)
+
+            blocks.append(
+                headers[index]
+                + content
+                + "\\n"
+            )
+
+        text = "\\n".join(blocks)
+
+        if len(text) > self.max_chars:
+            text = text[:self.max_chars]
+
+        return MemoryContext(
+            query=query,
+            chunks=selected,
+            text=text,
+            total_chars=len(text),
         )
 
     def _build_context(

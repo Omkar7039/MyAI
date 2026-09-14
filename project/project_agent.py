@@ -7,7 +7,7 @@ from project.context_ranker import ContextRanker
 from project.multi_file_analyzer import MultiFileAnalyzer
 from memory.store import MemoryStore
 from memory.retriever import MemoryRetriever
-from memory.retriever import MemoryRetriever
+from memory.context_assembler import MemoryContextAssembler
 
 
 class ProjectAgent:
@@ -24,6 +24,11 @@ class ProjectAgent:
         )
         self.memory_retriever = MemoryRetriever(
             self.memory_store
+        )
+        self.memory_context = MemoryContextAssembler(
+            self.memory_retriever,
+            max_chars=2400,
+            max_chunks=6,
         )
 
     def analyze(self, request: str):
@@ -112,30 +117,71 @@ class ProjectAgent:
         max_chars=2400,
     ):
         """
-        Retrieve persistent project-memory context.
+        Retrieve bounded persistent project memory.
 
-        Memory is supplemental context. It is never treated as
-        independently verified evidence.
+        Exact symbol requests use grouped segment retrieval.
+        Other requests use relevance-based retrieval.
+
+        Memory is supplemental context only and is never treated
+        as independently verified evidence.
         """
-        results = self.memory_retriever.search(
-            request,
+        request_text = (request or "").strip()
+
+        exact_symbols = {
+            item.strip()
+            for item in [request_text]
+            if "." in item and " " not in item
+        }
+
+        if exact_symbols:
+            context = self.memory_context.assemble_symbol(
+                next(iter(exact_symbols)),
+                max_segments=max_results,
+            )
+
+            # Respect the caller's requested budget even when the
+            # configured assembler has a larger limit.
+            selected = []
+            used = 0
+
+            for result in context.chunks:
+                chunk = result.chunk
+                size = len(chunk.content)
+
+                if used + size > min(max_chars, 2400):
+                    continue
+
+                selected.append(
+                    {
+                        "file": chunk.file_path,
+                        "start_line": chunk.start_line,
+                        "end_line": chunk.end_line,
+                        "kind": chunk.kind,
+                        "segment": chunk.segment,
+                        "score": result.score,
+                        "content": chunk.content,
+                    }
+                )
+
+                used += size
+
+            return selected
+
+        assembler = MemoryContextAssembler(
+            self.memory_retriever,
+            max_chars=min(max_chars, 2400),
+            max_chunks=max_results,
+        )
+
+        context = assembler.assemble(
+            query=request_text,
             top_k=max_results,
         )
 
         selected = []
-        used = 0
 
-        for result in results:
+        for result in context.chunks:
             chunk = result.chunk
-
-            text = (
-                f"[{chunk.file_path}:{chunk.start_line}-"
-                f"{chunk.end_line}] {chunk.kind}\n"
-                f"{chunk.content}\n"
-            )
-
-            if used + len(text) > max_chars:
-                continue
 
             selected.append(
                 {
@@ -143,12 +189,11 @@ class ProjectAgent:
                     "start_line": chunk.start_line,
                     "end_line": chunk.end_line,
                     "kind": chunk.kind,
+                    "segment": chunk.segment,
                     "score": result.score,
                     "content": chunk.content,
                 }
             )
-
-            used += len(text)
 
         return selected
 
