@@ -2,6 +2,7 @@ import ast
 import re
 
 from experience.recorder import ExperienceRecorder
+from experience.retriever import ExperienceRetriever
 from tools.runner_manager import RunnerManager
 from verification.test_generator import TestGenerator
 from verification.mutation_engine import MutationEngine
@@ -36,6 +37,7 @@ class RepairAgent:
         )
 
         self.experience_recorder = ExperienceRecorder()
+        self.experience_retriever = ExperienceRetriever()
 
     def extract_code(
         self,
@@ -124,6 +126,11 @@ class RepairAgent:
             + "\n"
         )
 
+        experience_text = self._build_experience_context(
+            problem,
+            max_chars=1600,
+        )
+
         prompt = (
             "You are MyAI's automatic Python repair agent.\n\n"
             "Repair the SOURCE CODE according to the USER REQUIREMENT.\n"
@@ -145,6 +152,7 @@ class RepairAgent:
             f"REGRESSION TESTS:\n"
             f"```python\n{tests}\n```\n"
             f"{property_text}\n"
+            f"{experience_text}"
             f"SOURCE CODE:\n"
             f"```python\n{code}\n```\n"
         )
@@ -158,6 +166,87 @@ class RepairAgent:
             ],
             max_tokens=768,
         )
+
+    def _build_experience_context(
+        self,
+        problem,
+        max_chars=1600,
+    ):
+        """
+        Build a small advisory experience context.
+
+        Historical experience never overrides current source,
+        current tests, or current verification results.
+        """
+        successful = self.experience_retriever.successful(
+            problem,
+            limit=3,
+        )
+
+        warnings = self.experience_retriever.warnings(
+            problem,
+            limit=3,
+        )
+
+        sections = [
+            "ADVISORY HISTORICAL EXPERIENCE:",
+            "This information comes from previous attempts.",
+            "It is NOT authoritative. Current source code and "
+            "current regression/verification results take priority.",
+        ]
+
+        used = sum(len(item) for item in sections)
+
+        if successful:
+            sections.append("\nSUCCESSFUL PRECEDENTS:")
+
+            for item in successful:
+                experience = item.experience
+
+                block = (
+                    f"- Task: {experience.task}\n"
+                    f"  Action: {experience.action}\n"
+                    f"  Outcome: {experience.outcome}\n"
+                    f"  Lesson: {experience.lesson}\n"
+                )
+
+                if used + len(block) > max_chars:
+                    break
+
+                sections.append(block)
+                used += len(block)
+        else:
+            sections.append(
+                "\nNo successful historical precedent was found."
+            )
+
+        if warnings and used < max_chars:
+            sections.append("\nFAILED ATTEMPTS / WARNINGS:")
+
+            for item in warnings:
+                experience = item.experience
+
+                block = (
+                    f"- Task: {experience.task}\n"
+                    f"  Previous action: {experience.action}\n"
+                    f"  Outcome: {experience.outcome}\n"
+                    f"  Warning: {experience.lesson}\n"
+                )
+
+                if used + len(block) > max_chars:
+                    break
+
+                sections.append(block)
+                used += len(block)
+
+        sections.append(
+            "\nDo not copy an historical solution blindly. "
+            "Verify every change against the current source and tests.\n\n"
+        )
+
+        result = "\n".join(sections)
+
+        return result[:max_chars]
 
     def run_tests(
         self,
