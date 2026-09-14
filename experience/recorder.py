@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 
+from experience.feedback import ExperienceFeedbackEngine
 from experience.quality import ExperienceQualityChecker
 from experience.store import Experience, ExperienceStore
 
@@ -33,6 +34,7 @@ class ExperienceRecorder:
             "data/experience.db"
         )
         self.quality_checker = ExperienceQualityChecker()
+        self.feedback_engine = ExperienceFeedbackEngine()
 
     def record_repair(
         self,
@@ -66,9 +68,23 @@ class ExperienceRecorder:
             success=experience.success,
         )
 
+        feedback = self.feedback_engine.evaluate(
+            task=experience.task,
+            action=experience.action,
+            outcome=experience.outcome,
+            success=experience.success,
+            lesson=experience.lesson,
+            metadata=experience.metadata,
+        )
+
         if not quality.accepted:
             raise ValueError(
                 f"Experience rejected: {quality.reason}"
+            )
+
+        if not feedback.accepted:
+            raise ValueError(
+                "Experience rejected: insufficient actionable feedback."
             )
 
         experience_id = self._make_id(experience)
@@ -80,7 +96,7 @@ class ExperienceRecorder:
             action=experience.action,
             outcome=experience.outcome,
             success=experience.success,
-            lesson=experience.lesson,
+            lesson=feedback.improved_lesson,
             metadata=experience.metadata,
         )
 
