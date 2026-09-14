@@ -178,6 +178,160 @@ class GitManager:
             "status": status,
         }
 
+
+    def create_worktree(self, worktree_path: str, branch_name: str):
+        """Create an isolated worktree from the current HEAD."""
+        worktree = Path(worktree_path).expanduser().resolve()
+
+        if not branch_name or branch_name.strip() != branch_name:
+            return {"success": False, "error": "Invalid branch name."}
+
+        if branch_name in {"main", "master"}:
+            return {
+                "success": False,
+                "error": "Refusing to use a protected branch name.",
+            }
+
+        if worktree == self.root:
+            return {
+                "success": False,
+                "error": "Worktree path cannot be the main repository.",
+            }
+
+        if worktree.exists():
+            return {
+                "success": False,
+                "error": f"Worktree path already exists: {worktree}",
+            }
+
+        branch_result = self._run(
+            ["git", "branch", "--list", branch_name],
+            check=False,
+        )
+
+        if branch_result.returncode != 0:
+            return {
+                "success": False,
+                "error": (
+                    branch_result.stderr.strip()
+                    or "Unable to inspect Git branches."
+                ),
+            }
+
+        if branch_result.stdout.strip():
+            return {
+                "success": False,
+                "error": f"Branch already exists: {branch_name}",
+            }
+
+        result = self._run(
+            [
+                "git",
+                "worktree",
+                "add",
+                "-b",
+                branch_name,
+                str(worktree),
+                "HEAD",
+            ],
+            check=False,
+        )
+
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "error": (
+                    result.stderr.strip()
+                    or result.stdout.strip()
+                    or "Unable to create worktree."
+                ),
+            }
+
+        return {
+            "success": True,
+            "path": str(worktree),
+            "branch": branch_name,
+            "head": self.head(),
+        }
+
+    def remove_worktree(self, worktree_path: str):
+        """Remove an isolated worktree."""
+        worktree = Path(worktree_path).expanduser().resolve()
+
+        if worktree == self.root:
+            return {
+                "success": False,
+                "error": "Refusing to remove the main repository.",
+            }
+
+        if not worktree.exists():
+            return {
+                "success": False,
+                "error": f"Worktree does not exist: {worktree}",
+            }
+
+        result = self._run(
+            [
+                "git",
+                "worktree",
+                "remove",
+                "--force",
+                str(worktree),
+            ],
+            check=False,
+        )
+
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "error": (
+                    result.stderr.strip()
+                    or result.stdout.strip()
+                    or "Unable to remove worktree."
+                ),
+            }
+
+        return {
+            "success": True,
+            "path": str(worktree),
+        }
+
+    def delete_branch(self, branch_name: str):
+        """Delete an isolated local branch safely."""
+        current = self.current_branch()
+
+        if not branch_name:
+            return {
+                "success": False,
+                "error": "Branch name is required.",
+            }
+
+        if branch_name == current:
+            return {
+                "success": False,
+                "error": "Refusing to delete the current branch.",
+            }
+
+        result = self._run(
+            ["git", "branch", "-D", branch_name],
+            check=False,
+        )
+
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "error": (
+                    result.stderr.strip()
+                    or result.stdout.strip()
+                    or "Unable to delete branch."
+                ),
+            }
+
+        return {
+            "success": True,
+            "branch": branch_name,
+        }
+
     def diff(self):
         result = self._run(
             ["git", "diff", "--"],
