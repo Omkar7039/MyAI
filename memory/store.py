@@ -211,6 +211,28 @@ class MemoryStore:
             for row in rows
         ]
 
+    def all_documents(self) -> list[dict]:
+        """Return all indexed documents."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    file_path,
+                    content_hash,
+                    size_bytes,
+                    indexed_at
+                FROM documents
+                ORDER BY file_path
+                """
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+    def indexed_hash(self, file_path: str) -> str | None:
+        """Return the stored content hash for a file."""
+        document = self.document(file_path)
+        return document["content_hash"] if document else None
+
     def count_documents(self) -> int:
         with self._connect() as conn:
             row = conn.execute(

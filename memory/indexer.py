@@ -153,6 +153,90 @@ class ProjectMemoryIndexer:
 
         return summary
 
+    def freshness(self) -> dict:
+        """
+        Check whether indexed memory matches the current filesystem.
+
+        Returns stale, missing, and up-to-date files without modifying
+        the memory database.
+        """
+        current_files = {}
+
+        for path in self._iter_source_files():
+            relative = path.relative_to(self.root).as_posix()
+
+            try:
+                content = path.read_text(
+                    encoding="utf-8",
+                    errors="strict",
+                )
+            except Exception as exc:
+                current_files[relative] = {
+                    "error": str(exc),
+                }
+                continue
+
+            current_files[relative] = {
+                "hash": self._hash(content),
+            }
+
+        indexed = {
+            item["file_path"]: item
+            for item in self.store.all_documents()
+        }
+
+        stale = []
+        missing = []
+        current = []
+
+        for file_path, metadata in current_files.items():
+            if "error" in metadata:
+                stale.append(
+                    {
+                        "file": file_path,
+                        "reason": metadata["error"],
+                    }
+                )
+                continue
+
+            stored = indexed.get(file_path)
+
+            if stored is None:
+                stale.append(
+                    {
+                        "file": file_path,
+                        "reason": "not_indexed",
+                    }
+                )
+                continue
+
+            if stored["content_hash"] != metadata["hash"]:
+                stale.append(
+                    {
+                        "file": file_path,
+                        "reason": "content_changed",
+                    }
+                )
+                continue
+
+            current.append(file_path)
+
+        for file_path in indexed:
+            if file_path not in current_files:
+                missing.append(file_path)
+
+        return {
+            "indexed_documents": len(indexed),
+            "current_documents": len(current),
+            "stale": stale,
+            "missing": missing,
+            "up_to_date": (
+                not stale
+                and not missing
+                and len(current) == len(indexed)
+            ),
+        }
+
     def _iter_source_files(self):
         for path in self.root.rglob("*"):
             if not path.is_file():
