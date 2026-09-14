@@ -1,0 +1,26 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+logs/
+*.log
+
+.env
+.env.*
+
+.DS_Store
+
+models/*.gguf
+models/*.safetensors
+models/*.bin
+models/*.pt
+models/*.pth
+
+*.tmp
+*.swp
+
+# Local backup snapshots
+*.backup
