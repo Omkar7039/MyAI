@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from project.change_aware_ranker import ChangeAwareRanker
+
 
 class ProjectRetriever:
     def __init__(self, root="~/MyAI"):
@@ -102,6 +104,33 @@ class ProjectRetriever:
             )
 
         return results
+
+    def read_changed_files(self, files, request: str, changed_files=()):
+        ranked = ChangeAwareRanker().rank(
+            files,
+            request,
+            changed_files=changed_files,
+        )
+
+        ordered_files = [
+            item.item
+            for item in ranked
+        ]
+
+        evidence = self.read_files(ordered_files)
+
+        score_map = {
+            str(item.item): item
+            for item in ranked
+        }
+
+        for item in evidence:
+            ranking = score_map.get(item["file"])
+            if ranking is not None:
+                item["score"] = ranking.score
+                item["reasons"] = list(ranking.reasons)
+
+        return evidence
 
     def read_related_sources(self, symbols, files=None):
         """
