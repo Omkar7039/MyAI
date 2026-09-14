@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 
+from experience.quality import ExperienceQualityChecker
 from experience.store import Experience, ExperienceStore
 
 
@@ -31,6 +32,7 @@ class ExperienceRecorder:
         self.store = store or ExperienceStore(
             "data/experience.db"
         )
+        self.quality_checker = ExperienceQualityChecker()
 
     def record_repair(
         self,
@@ -56,6 +58,19 @@ class ExperienceRecorder:
         self,
         experience: RepairExperience,
     ) -> Experience:
+        quality = self.quality_checker.evaluate(
+            task=experience.task,
+            action=experience.action,
+            outcome=experience.outcome,
+            lesson=experience.lesson,
+            success=experience.success,
+        )
+
+        if not quality.accepted:
+            raise ValueError(
+                f"Experience rejected: {quality.reason}"
+            )
+
         experience_id = self._make_id(experience)
 
         stored = Experience(
