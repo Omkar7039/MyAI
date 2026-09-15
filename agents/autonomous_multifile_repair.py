@@ -9,6 +9,9 @@ from agents.autonomous_multifile_retry import (
 from agents.multifile_attempt_evaluator import (
     MultiFileAttemptEvaluator,
 )
+from agents.autonomous_multifile_improvement import (
+    MultiFileRepairImprovementPlanner,
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,7 @@ class AutonomousMultiFileRepair:
         max_attempts: int = 3,
         retry_planner: AutonomousMultiFileRetryPlanner | None = None,
         evaluator: MultiFileAttemptEvaluator | None = None,
+        improvement_planner: MultiFileRepairImprovementPlanner | None = None,
     ):
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
@@ -49,6 +53,10 @@ class AutonomousMultiFileRepair:
         )
         self.evaluator = (
             evaluator or MultiFileAttemptEvaluator()
+        )
+        self.improvement_planner = (
+            improvement_planner
+            or MultiFileRepairImprovementPlanner()
         )
 
     def repair(self, request, project_root):
@@ -121,6 +129,18 @@ class AutonomousMultiFileRepair:
             current_request = self.retry_planner.build_request(
                 request,
                 retry_context,
+            )
+
+            improvement = self.improvement_planner.plan(
+                result
+            )
+
+            current_request = (
+                current_request
+                + "\n\n"
+                + self.improvement_planner.build_directive(
+                    improvement
+                )
             )
 
         return AutonomousMultiFileRepairResult(

@@ -78,6 +78,8 @@ def test_autonomous_multifile_repair_retries_retryable_failure():
     assert result.attempts[1].success is True
     assert "AUTONOMOUS RETRY CONTEXT:" in result.attempts[1].request
     assert "verification failed" in result.attempts[1].request
+    assert "AUTONOMOUS REPAIR IMPROVEMENT:" in result.attempts[1].request
+    assert "Change the repair approach" in result.attempts[1].request
     assert len(executor.calls) == 2
 
 
