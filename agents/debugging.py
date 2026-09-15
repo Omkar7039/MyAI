@@ -2,6 +2,7 @@ from core.model import LocalModel
 from agents.repair import RepairAgent
 from tools.code_analyzer import CodeAnalyzer
 from tools.runner_manager import RunnerManager
+from agents.debug_investigation import DebugInvestigator
 
 
 class DebugAgent:
@@ -9,6 +10,10 @@ class DebugAgent:
         self.model = model or LocalModel()
         self.analyzer = CodeAnalyzer()
         self.runner_manager = RunnerManager()
+        self.investigator = DebugInvestigator(
+            analyzer=self.analyzer,
+            runner_manager=self.runner_manager,
+        )
         self.repair_agent = RepairAgent(self.model)
 
     def analyze(
@@ -35,28 +40,15 @@ class DebugAgent:
 
         language = (language or "unknown").lower()
 
-        analysis = self.analyzer.analyze(
-            code,
+        investigation = self.investigator.investigate(
+            problem=problem,
+            code=code,
+            error=error,
             language=language,
         )
 
-        runtime = None
-
-        if self.runner_manager.supports(language):
-            try:
-                runtime = self.runner_manager.run(
-                    language,
-                    code,
-                )
-            except Exception as exc:
-                runtime = {
-                    "language": language,
-                    "success": False,
-                    "exit_code": -1,
-                    "stdout": "",
-                    "stderr": str(exc),
-                    "timed_out": False,
-                }
+        analysis = investigation.static_analysis
+        runtime = investigation.runtime
 
         runtime_text = "Runtime execution was not available."
 
