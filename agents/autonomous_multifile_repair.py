@@ -6,6 +6,9 @@ from agents.autonomous_multifile_retry import (
     AutonomousMultiFileRetryPlanner,
     RetryContext,
 )
+from agents.multifile_attempt_evaluator import (
+    MultiFileAttemptEvaluator,
+)
 
 
 @dataclass(frozen=True)
@@ -16,6 +19,8 @@ class MultiFileRepairAttempt:
     stage: str
     errors: tuple[str, ...]
     rolled_back: bool
+    retryable: bool
+    evaluation_reason: str
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,7 @@ class AutonomousMultiFileRepair:
         executor,
         max_attempts: int = 3,
         retry_planner: AutonomousMultiFileRetryPlanner | None = None,
+        evaluator: MultiFileAttemptEvaluator | None = None,
     ):
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
@@ -40,6 +46,9 @@ class AutonomousMultiFileRepair:
         self.max_attempts = max_attempts
         self.retry_planner = (
             retry_planner or AutonomousMultiFileRetryPlanner()
+        )
+        self.evaluator = (
+            evaluator or MultiFileAttemptEvaluator()
         )
 
     def repair(self, request, project_root):
@@ -64,6 +73,8 @@ class AutonomousMultiFileRepair:
                 for error in result.get("errors", [])
             )
 
+            evaluation = self.evaluator.evaluate(result)
+
             attempt = MultiFileRepairAttempt(
                 attempt=attempt_number,
                 request=current_request,
@@ -75,6 +86,8 @@ class AutonomousMultiFileRepair:
                 rolled_back=bool(
                     result.get("rolled_back", False)
                 ),
+                retryable=evaluation.retryable,
+                evaluation_reason=evaluation.reason,
             )
 
             attempts.append(attempt)
@@ -85,6 +98,14 @@ class AutonomousMultiFileRepair:
                     attempts=tuple(attempts),
                     stopped_safely=False,
                     reason="Multi-file repair verified successfully.",
+                )
+
+            if not evaluation.retryable:
+                return AutonomousMultiFileRepairResult(
+                    success=False,
+                    attempts=tuple(attempts),
+                    stopped_safely=True,
+                    reason=evaluation.reason,
                 )
 
             if attempt_number >= self.max_attempts:

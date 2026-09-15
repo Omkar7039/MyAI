@@ -41,11 +41,12 @@ def test_autonomous_multifile_repair_succeeds_on_first_attempt():
     assert result.success is True
     assert len(result.attempts) == 1
     assert result.attempts[0].success is True
+    assert result.attempts[0].retryable is False
     assert result.stopped_safely is False
     assert len(executor.calls) == 1
 
 
-def test_autonomous_multifile_repair_retries_with_failure_context():
+def test_autonomous_multifile_repair_retries_retryable_failure():
     executor = FakeExecutor(
         [
             {
@@ -73,14 +74,44 @@ def test_autonomous_multifile_repair_retries_with_failure_context():
 
     assert result.success is True
     assert len(result.attempts) == 2
-
-    assert result.attempts[0].success is False
-    assert result.attempts[0].rolled_back is True
-
+    assert result.attempts[0].retryable is True
     assert result.attempts[1].success is True
     assert "AUTONOMOUS RETRY CONTEXT:" in result.attempts[1].request
     assert "verification failed" in result.attempts[1].request
     assert len(executor.calls) == 2
+
+
+def test_autonomous_multifile_repair_stops_on_non_retryable_failure():
+    executor = FakeExecutor(
+        [
+            {
+                "success": False,
+                "stage": "unknown",
+                "errors": [],
+                "rolled_back": False,
+            },
+            {
+                "success": True,
+                "stage": "complete",
+                "errors": [],
+                "rolled_back": False,
+            },
+        ]
+    )
+
+    result = AutonomousMultiFileRepair(
+        executor,
+        max_attempts=3,
+    ).repair(
+        request="repair project",
+        project_root="/tmp/project",
+    )
+
+    assert result.success is False
+    assert result.stopped_safely is True
+    assert len(result.attempts) == 1
+    assert "enough evidence" in result.reason.lower()
+    assert len(executor.calls) == 1
 
 
 def test_autonomous_multifile_repair_stops_at_attempt_limit():
