@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agents.autonomous_multifile_retry import (
+    AutonomousMultiFileRetryPlanner,
+    RetryContext,
+)
+
 
 @dataclass(frozen=True)
 class MultiFileRepairAttempt:
     attempt: int
+    request: str
     success: bool
     stage: str
     errors: tuple[str, ...]
@@ -25,19 +31,27 @@ class AutonomousMultiFileRepair:
         self,
         executor,
         max_attempts: int = 3,
+        retry_planner: AutonomousMultiFileRetryPlanner | None = None,
     ):
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
 
         self.executor = executor
         self.max_attempts = max_attempts
+        self.retry_planner = (
+            retry_planner or AutonomousMultiFileRetryPlanner()
+        )
 
     def repair(self, request, project_root):
         attempts = []
+        current_request = request
 
-        for attempt_number in range(1, self.max_attempts + 1):
+        for attempt_number in range(
+            1,
+            self.max_attempts + 1,
+        ):
             result = self.executor.execute(
-                request=request,
+                request=current_request,
                 project_root=project_root,
             )
 
@@ -52,6 +66,7 @@ class AutonomousMultiFileRepair:
 
             attempt = MultiFileRepairAttempt(
                 attempt=attempt_number,
+                request=current_request,
                 success=success,
                 stage=str(
                     result.get("stage", "unknown")
@@ -74,6 +89,18 @@ class AutonomousMultiFileRepair:
 
             if attempt_number >= self.max_attempts:
                 break
+
+            retry_context = RetryContext(
+                attempt=attempt_number,
+                previous_stage=attempt.stage,
+                previous_errors=attempt.errors,
+                previous_rolled_back=attempt.rolled_back,
+            )
+
+            current_request = self.retry_planner.build_request(
+                request,
+                retry_context,
+            )
 
         return AutonomousMultiFileRepairResult(
             success=False,
