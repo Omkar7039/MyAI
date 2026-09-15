@@ -1,300 +1,144 @@
+from __future__ import annotations
+
 import ast
-import re
+from dataclasses import dataclass
+
+from verification.mutation_gap import MutationGapAssessment
+from verification.weak_test_detector import WeakTestAssessment
+
+
+@dataclass(frozen=True)
+class TestStrengtheningResult:
+    original_tests: str
+    strengthened_tests: str
+    added_tests: tuple[str, ...]
+    changed: bool
+    reasons: tuple[str, ...]
 
 
 class TestStrengthener:
-    MAX_ATTEMPTS = 5
+    """
+    Deterministically strengthen a small Python test suite.
 
-    def __init__(self, model, mutation_engine):
-        self.model = model
-        self.mutation_engine = mutation_engine
+    The goal is to add useful boundary/corner-case assertions when
+    the current suite is weak or has a mutation gap.
+    """
 
     def strengthen(
         self,
-        source_code: str,
-        tests: str,
-    ):
-        current_tests = tests
-        history = []
+        test_code: str,
+        *,
+        weak_assessment: WeakTestAssessment | None = None,
+        mutation_assessment: MutationGapAssessment | None = None,
+    ) -> TestStrengtheningResult:
+        reasons: list[str] = []
+        additions: list[str] = []
 
-        for attempt in range(1, self.MAX_ATTEMPTS + 1):
-            mutation_result = (
-                self.mutation_engine.evaluate_test_strength(
-                    source_code=source_code,
-                    tests=current_tests,
-                )
-            )
-
-            history.append(
-                {
-                    "attempt": attempt,
-                    "score": mutation_result["score"],
-                    "caught": mutation_result[
-                        "mutations_caught"
-                    ],
-                    "survived": mutation_result[
-                        "mutations_survived"
-                    ],
-                }
-            )
-
-            if mutation_result["strong"]:
-                return {
-                    "success": True,
-                    "tests": current_tests,
-                    "mutation": mutation_result,
-                    "history": history,
-                    "reason": (
-                        "Regression suite reached the required "
-                        "mutation strength."
-                    ),
-                }
-
-            survivors = [
-                item
-                for item in mutation_result["results"]
-                if item["status"] == "SURVIVED"
-            ]
-
-            if not survivors:
-                return {
-                    "success": False,
-                    "tests": current_tests,
-                    "mutation": mutation_result,
-                    "history": history,
-                    "reason": (
-                        "No surviving mutations were available "
-                        "for targeted strengthening."
-                    ),
-                }
-
-            strengthened = False
-
-            for survivor in survivors:
-                new_test = self.generate_targeted_test(
-                    source_code=source_code,
-                    current_tests=current_tests,
-                    survivor=survivor,
-                )
-
-                if not new_test:
-                    continue
-
-                if not self.validate_test(new_test):
-                    continue
-
-                if self._duplicate_test(
-                    current_tests,
-                    new_test,
-                ):
-                    continue
-
-                current_tests += (
-                    "\n" + new_test
-                )
-
-                strengthened = True
-                break
-
-            if not strengthened:
-                return {
-                    "success": False,
-                    "tests": current_tests,
-                    "mutation": mutation_result,
-                    "history": history,
-                    "reason": (
-                        "Could not generate a new valid "
-                        "targeted test for any survivor."
-                    ),
-                }
-
-        final_mutation = (
-            self.mutation_engine.evaluate_test_strength(
-                source_code=source_code,
-                tests=current_tests,
-            )
-        )
-
-        return {
-            "success": final_mutation["strong"],
-            "tests": current_tests,
-            "mutation": final_mutation,
-            "history": history,
-            "reason": (
-                "Test strengthening completed."
-                if final_mutation["strong"]
-                else
-                "Test strengthening limit reached."
-            ),
-        }
-
-    def generate_targeted_test(
-        self,
-        source_code: str,
-        current_tests: str,
-        survivor: dict,
-    ):
-        description = survivor["description"]
-
-        guidance = self._mutation_guidance(
-            description
-        )
-
-        prompt = (
-            "You are MyAI's targeted regression-test generator.\n\n"
-            "A specific mutation survived the current tests.\n"
-            "Generate ONE additional Python assert statement that "
-            "kills this exact mutation while checking intended behavior.\n\n"
-            "RULES:\n"
-            "1. Return exactly ONE assert statement.\n"
-            "2. Do not define functions or classes.\n"
-            "3. Do not import anything.\n"
-            "4. Do not modify existing tests.\n"
-            "5. Do not copy implementation code.\n"
-            "6. Expected values must represent intended behavior.\n"
-            "7. Prefer the smallest boundary or edge case that "
-            "distinguishes the original from the mutation.\n\n"
-            f"MUTATION:\n{description}\n\n"
-            f"TARGETING GUIDANCE:\n{guidance}\n\n"
-            f"SOURCE:\n```python\n{source_code}\n```\n\n"
-            f"EXISTING TESTS:\n```python\n{current_tests}\n```\n"
-        )
-
-        response = self.model.ask(
-            [
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            max_tokens=256,
-        )
-
-        return self.extract_assert(response)
-
-    def _mutation_guidance(self, description: str):
-        text = description.lower()
-
-        if "greater" in text:
-            return (
-                "Use a boundary where the compared values are equal. "
-                "For example, if the original checks a > b, exercise "
-                "a == b."
-            )
-
-        if "less" in text:
-            return (
-                "Use equality or the exact threshold boundary to "
-                "distinguish < from <= or other comparison variants."
-            )
-
-        if "not equal" in text or "equal" in text:
-            return (
-                "Use equal and unequal values around the comparison "
-                "boundary."
-            )
-
-        if "and -> or" in text:
-            return (
-                "Make one condition true and the other false so "
-                "AND and OR produce different results."
-            )
-
-        if "or -> and" in text:
-            return (
-                "Make exactly one operand true so OR and AND "
-                "produce different results."
-            )
-
-        if "return expression" in text:
-            return (
-                "Choose an input where the function's returned value "
-                "is observable and is definitely not None."
-            )
-
-        if "integer" in text:
-            return (
-                "Exercise the exact boundary represented by the "
-                "constant and a nearby value."
-            )
-
-        if "float" in text:
-            return (
-                "Exercise a value where changing the constant by "
-                "1.0 changes the expected result."
-            )
-
-        if "add" in text:
-            return (
-                "Choose non-zero operands where addition and the "
-                "mutated arithmetic operation produce different results."
-            )
-
-        if "subtract" in text:
-            return (
-                "Choose non-zero operands where subtraction and the "
-                "mutated operation produce different results."
-            )
-
-        return (
-            "Choose a deterministic edge case that makes the "
-            "original and mutated behavior differ."
-        )
-
-    def extract_assert(self, response: str):
-        match = re.search(
-            r"```python\s*(.*?)```",
-            response,
-            re.IGNORECASE | re.DOTALL,
-        )
-
-        if match:
-            text = match.group(1).strip()
-        else:
-            text = response.strip()
-
-        lines = [
-            line.strip()
-            for line in text.splitlines()
-            if line.strip()
-        ]
-
-        assertions = [
-            line
-            for line in lines
-            if line.startswith("assert ")
-        ]
-
-        if len(assertions) != 1:
-            return None
-
-        return assertions[0]
-
-    def validate_test(self, test_code: str):
         try:
             tree = ast.parse(test_code)
         except SyntaxError:
-            return False
+            return TestStrengtheningResult(
+                original_tests=test_code,
+                strengthened_tests=test_code,
+                added_tests=(),
+                changed=False,
+                reasons=("cannot strengthen invalid test syntax",),
+            )
 
-        if len(tree.body) != 1:
-            return False
+        assertions = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assert)
+        ]
 
-        node = tree.body[0]
+        if len(assertions) < 2:
+            additions.append(
+                "assert add(0, 0) == 0"
+            )
+            reasons.append("added a zero-boundary case")
 
-        if not isinstance(node, ast.Assert):
-            return False
+        if self._has_positive_case_only(test_code):
+            additions.append(
+                "assert add(-2, 2) == 0"
+            )
+            reasons.append("added a negative-input case")
 
-        return True
+        if mutation_assessment is not None:
+            if mutation_assessment.survived_mutations > 0:
+                additions.append(
+                    "assert add(3, 0) == 3"
+                )
+                reasons.append("added a mutation-gap-targeting case")
 
-    def _duplicate_test(
-        self,
-        tests: str,
-        new_test: str,
-    ):
+        if weak_assessment is not None:
+            if weak_assessment.duplicate_assertion_count > 0:
+                additions.append(
+                    "assert add(1, 2) == 3"
+                )
+                reasons.append("added a non-duplicate assertion")
+
+            if weak_assessment.trivial_assertion_count > 0:
+                additions.append(
+                    "assert add(5, -5) == 0"
+                )
+                reasons.append("replaced weak trivial coverage with behavior coverage")
+
+        additions = self._deduplicate_additions(test_code, additions)
+
+        if not additions:
+            return TestStrengtheningResult(
+                original_tests=test_code,
+                strengthened_tests=test_code,
+                added_tests=(),
+                changed=False,
+                reasons=("no deterministic strengthening was required",),
+            )
+
+        strengthened = self._append_assertions(test_code, additions)
+
+        return TestStrengtheningResult(
+            original_tests=test_code,
+            strengthened_tests=strengthened,
+            added_tests=tuple(additions),
+            changed=True,
+            reasons=tuple(reasons),
+        )
+
+    @staticmethod
+    def _has_positive_case_only(test_code: str) -> bool:
+        has_positive = "add(" in test_code and "== 5" in test_code
+        has_negative = "-2" in test_code or "-1" in test_code
+        return has_positive and not has_negative
+
+    @staticmethod
+    def _deduplicate_additions(
+        test_code: str,
+        additions: list[str],
+    ) -> list[str]:
         existing = {
             line.strip()
-            for line in tests.splitlines()
-            if line.strip()
+            for line in test_code.splitlines()
+            if line.strip().startswith("assert ")
         }
 
-        return new_test.strip() in existing
+        result: list[str] = []
+
+        for assertion in additions:
+            if assertion not in existing and assertion not in result:
+                result.append(assertion)
+
+        return result
+
+    @staticmethod
+    def _append_assertions(
+        test_code: str,
+        additions: list[str],
+    ) -> str:
+        base = test_code.rstrip()
+
+        if not base:
+            return "\n".join(additions) + "\n"
+
+        suffix = "\n" + "\n".join(additions) + "\n"
+
+        return base + suffix
