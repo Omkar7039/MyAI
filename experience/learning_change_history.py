@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass
 
 from experience.learning_approval import LearningApprovalDecision
-from experience.learning_change_application import LearningAppliedChange
+from experience.learning_state import LearningAppliedChange
 from experience.learning_change_proposal import LearningChangeProposal
 from experience.store import Experience, ExperienceStore
 

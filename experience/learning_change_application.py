@@ -1,22 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from experience.learning_approval import (
     LearningApprovalDecision,
 )
 from experience.learning_change_proposal import (
     LearningChangeProposal,
 )
+from experience.learning_state import (
+    LearningAppliedChange,
+)
+from experience.persistent_learning_state import (
+    PersistentLearningState,
+)
 
-
-@dataclass(frozen=True)
-class LearningAppliedChange:
-    strategy: str
-    previous_score: float | None
-    applied_score: float
-    observations: int
-    confidence: float
 
 
 class LearningChangeApplication:
@@ -27,12 +23,31 @@ class LearningChangeApplication:
     persist changes, perform routing, or approve proposals itself.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        persistent_state: PersistentLearningState | None = None,
+    ):
         self._state: dict[str, LearningAppliedChange] = {}
         self._history: dict[
             str,
             list[LearningAppliedChange | None],
         ] = {}
+
+        self.persistent_state = persistent_state
+
+        if self.persistent_state is not None:
+            changes, history = (
+                self.persistent_state.load_with_history()
+            )
+
+            for change in changes:
+                self._state[change.strategy] = change
+
+            self._history = {
+                strategy: list(items)
+                for strategy, items in history.items()
+            }
 
     def apply(
         self,
@@ -72,6 +87,12 @@ class LearningChangeApplication:
         )
 
         self._state[strategy] = change
+
+        if self.persistent_state is not None:
+            self.persistent_state.save(
+                self.all(),
+                self._history,
+            )
 
         return change
 
@@ -113,6 +134,12 @@ class LearningChangeApplication:
         else:
             self._state[name] = previous
 
+        if self.persistent_state is not None:
+            self.persistent_state.save(
+                self.all(),
+                self._history,
+            )
+
         return previous
 
     def can_rollback(
@@ -129,3 +156,6 @@ class LearningChangeApplication:
     def clear(self) -> None:
         self._state.clear()
         self._history.clear()
+
+        if self.persistent_state is not None:
+            self.persistent_state.clear()
