@@ -8,6 +8,9 @@ from router.intent_router import IntentRouter
 from router.difficulty_router import DifficultyRouter
 from router.model_router import ModelRouter
 from tools.language_detector import LanguageDetector
+from experience.learning_orchestrator import UnifiedLearningRouter
+from experience.governed_strategy_router import GovernedStrategyRouter
+from experience.learning_signal import LearningSignal
 
 
 @dataclass
@@ -66,6 +69,9 @@ class Orchestrator:
         self.model_router = ModelRouter()
 
         self.language_detector = LanguageDetector()
+
+        self.learning_router = UnifiedLearningRouter()
+        self.governed_learning_router = GovernedStrategyRouter()
 
         self.debug_agent = DebugAgent(self.model)
 
@@ -329,8 +335,58 @@ class Orchestrator:
             512,
         )
 
-    def handle(self, user_input: str) -> str:
+    def handle(
+        self,
+        user_input: str,
+        learning_signals: tuple[LearningSignal, ...]
+        | list[LearningSignal] = (),
+        utility_by_strategy: dict[str, float] | None = None,
+        baseline_score_by_strategy: dict[str, float] | None = None,
+        task_family: str | None = None,
+        allow_cross_task: bool = False,
+    ) -> str:
         request = self.build_request(user_input)
+
+        learning_route = self.learning_router.route(
+            default_repair_strategy="standard",
+            default_verification_strategy="standard",
+            signals=learning_signals,
+            utility_by_strategy=utility_by_strategy,
+        )
+
+        governed_repair = None
+        governed_verification = None
+
+        if baseline_score_by_strategy is not None:
+            repair_baseline = baseline_score_by_strategy.get(
+                learning_route.repair.strategy
+            )
+
+            verification_baseline = baseline_score_by_strategy.get(
+                learning_route.verification.strategy
+            )
+
+            if repair_baseline is not None:
+                governed_repair = self.governed_learning_router.route(
+                    default_strategy=learning_route.repair.strategy,
+                    signals=learning_signals,
+                    baseline_score=repair_baseline,
+                    task_family=task_family,
+                    allow_cross_task=allow_cross_task,
+                    utility_by_strategy=utility_by_strategy,
+                )
+
+            if verification_baseline is not None:
+                governed_verification = (
+                    self.governed_learning_router.route(
+                        default_strategy=learning_route.verification.strategy,
+                        signals=learning_signals,
+                        baseline_score=verification_baseline,
+                        task_family=task_family,
+                        allow_cross_task=allow_cross_task,
+                        utility_by_strategy=utility_by_strategy,
+                    )
+                )
 
         model_profile = self._choose_model(request)
 
@@ -361,11 +417,45 @@ class Orchestrator:
         if request.intent in {"debug", "repair"}:
             print("[MyAI] Agent=DebugAgent")
 
+            print(
+                f"[MyAI] LearningRepairStrategy="
+                f"{learning_route.repair.strategy} "
+                f"Learned={learning_route.repair.learned}"
+            )
+
+            print(
+                f"[MyAI] LearningVerificationStrategy="
+                f"{learning_route.verification.strategy} "
+                f"Learned={learning_route.verification.learned}"
+            )
+
+            if governed_repair is not None:
+                print(
+                    f"[MyAI] GovernedRepairStrategy="
+                    f"{governed_repair.strategy} "
+                    f"Learned={governed_repair.learned} "
+                    f"Governed={governed_repair.governed}"
+                )
+
+            if governed_verification is not None:
+                print(
+                    f"[MyAI] GovernedVerificationStrategy="
+                    f"{governed_verification.strategy} "
+                    f"Learned={governed_verification.learned} "
+                    f"Governed={governed_verification.governed}"
+                )
+
+            repair_strategy = learning_route.repair.strategy
+
+            if governed_repair is not None:
+                repair_strategy = governed_repair.strategy
+
             return self.debug_agent.analyze(
                 problem=request.raw_text,
                 code=request.code,
                 language=request.language,
                 auto_repair=True,
+                repair_strategy=repair_strategy,
             )
 
         # --------------------------------------------------

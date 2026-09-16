@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class TestQualityAssessment:
+    __test__ = False
     valid: bool
     assertion_count: int
     statement_count: int

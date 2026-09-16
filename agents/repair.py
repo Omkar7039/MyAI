@@ -5,6 +5,7 @@ from experience.recorder import ExperienceRecorder
 from experience.retriever import ExperienceRetriever
 from experience.planner import ExperiencePlanner
 from experience.provenance import ExperienceProvenance
+from agents.repair_strategy import RepairStrategyExecutor
 from tools.runner_manager import RunnerManager
 from verification.test_generator import TestGenerator
 from verification.mutation_engine import MutationEngine
@@ -44,6 +45,8 @@ class RepairAgent:
             self.experience_retriever,
             max_chars=1600,
         )
+
+        self.strategy_executor = RepairStrategyExecutor()
 
     def extract_code(
         self,
@@ -480,7 +483,10 @@ class RepairAgent:
         code: str,
         problem: str,
         expected_stdout=None,
+        strategy: str = RepairStrategyExecutor.STANDARD,
     ):
+        strategy_decision = self.strategy_executor.resolve(strategy)
+
         # ---------------------------------------------------------
         # 1. Generate intent-based regression tests.
         # ---------------------------------------------------------
@@ -510,6 +516,11 @@ class RepairAgent:
                 "properties": None,
                 "strengthening": None,
             }
+
+            result["strategy"] = strategy_decision.applied
+            result["requested_strategy"] = strategy_decision.requested
+            result["strategy_fallback"] = strategy_decision.fallback
+            result["strategy_reason"] = strategy_decision.reason
 
             self._record_experience(problem, result)
             return result
@@ -683,6 +694,11 @@ class RepairAgent:
                 "strengthening": strengthening,
             }
 
+            result["strategy"] = strategy_decision.applied
+            result["requested_strategy"] = strategy_decision.requested
+            result["strategy_fallback"] = strategy_decision.fallback
+            result["strategy_reason"] = strategy_decision.reason
+
             self._record_experience(problem, result)
             return result
 
@@ -746,6 +762,11 @@ class RepairAgent:
                 "strengthening": strengthening,
             }
 
+            result["strategy"] = strategy_decision.applied
+            result["requested_strategy"] = strategy_decision.requested
+            result["strategy_fallback"] = strategy_decision.fallback
+            result["strategy_reason"] = strategy_decision.reason
+
             self._record_experience(problem, result)
             return result
 
@@ -778,6 +799,11 @@ class RepairAgent:
             "properties": properties,
             "strengthening": strengthening,
         }
+
+        result["strategy"] = strategy_decision.applied
+        result["requested_strategy"] = strategy_decision.requested
+        result["strategy_fallback"] = strategy_decision.fallback
+        result["strategy_reason"] = strategy_decision.reason
 
         self._record_experience(problem, result)
         return result

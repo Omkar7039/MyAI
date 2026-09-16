@@ -3,6 +3,7 @@ import re
 
 
 class TestGenerator:
+    __test__ = False
     MAX_GENERATION_ATTEMPTS = 3
 
     def __init__(self, model):

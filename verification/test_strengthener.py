@@ -9,6 +9,7 @@ from verification.weak_test_detector import WeakTestAssessment
 
 @dataclass(frozen=True)
 class TestStrengtheningResult:
+    __test__ = False
     original_tests: str
     strengthened_tests: str
     added_tests: tuple[str, ...]

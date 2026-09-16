@@ -23,6 +23,7 @@ class DebugAgent:
         error=None,
         language=None,
         auto_repair=True,
+        repair_strategy="standard",
     ):
         if not code:
             return self.model.ask(
@@ -113,6 +114,7 @@ class DebugAgent:
             repair_result = self.repair_agent.repair_and_verify(
                 code=code,
                 problem=repair_problem,
+                strategy=repair_strategy,
             )
 
             repair_success = bool(
