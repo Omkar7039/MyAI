@@ -1,6 +1,7 @@
 import os
 import signal
 import sys
+from uuid import uuid4
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
@@ -81,6 +82,35 @@ def handle_runtime_command(command, services):
         return True
 
     return False
+
+
+
+def run_supervised_request(
+    ai,
+    services,
+    user_input: str,
+):
+    """
+    Execute one interactive request through the shared task supervisor.
+    """
+    task_id = f"interactive-{uuid4().hex}"
+
+    result = services.task_runner.run(
+        task_id=task_id,
+        execute=lambda: ai.handle(user_input),
+        fingerprint=f"request:{task_id}",
+        max_task_retries=1,
+    )
+
+    if result.response is None:
+        print(
+            f"\n[MyAI] Task {result.task.task_id} "
+            f"{result.task.status}: {result.task.reason}"
+        )
+        return result
+
+    print(result.response)
+    return result
 
 
 
@@ -198,9 +228,12 @@ def main():
 
                 print("\nAI:")
 
-                response = ai.handle(user_input)
+                run_supervised_request(
+                    ai,
+                    services,
+                    user_input,
+                )
 
-                print(response)
                 print()
 
             except EOFError:

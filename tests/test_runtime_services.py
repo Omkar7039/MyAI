@@ -327,3 +327,87 @@ def test_runtime_exit_code_recovery_ignores_empty_value(tmp_path):
 
     assert result is None
     assert store.value("runtime.last_exit_code") == ""
+
+
+def test_runtime_services_constructs_supervision_stack(tmp_path):
+    from core.runtime_recovery_controller import RuntimeRecoveryController
+    from core.supervised_task_runner import SupervisedTaskRunner
+    from core.task_supervisor import TaskSupervisor
+
+    store = RuntimeStateStore(tmp_path / "runtime.db")
+    services = RuntimeServices.create(store)
+
+    assert isinstance(
+        services.task_supervisor,
+        TaskSupervisor,
+    )
+    assert isinstance(
+        services.recovery_controller,
+        RuntimeRecoveryController,
+    )
+    assert isinstance(
+        services.task_runner,
+        SupervisedTaskRunner,
+    )
+
+
+def test_runtime_services_shares_supervisor_with_task_runner(
+    tmp_path,
+):
+    store = RuntimeStateStore(tmp_path / "runtime.db")
+    services = RuntimeServices.create(store)
+
+    assert (
+        services.task_runner.supervisor
+        is services.task_supervisor
+    )
+
+
+def test_runtime_services_shares_recovery_controller_with_task_runner(
+    tmp_path,
+):
+    store = RuntimeStateStore(tmp_path / "runtime.db")
+    services = RuntimeServices.create(store)
+
+    assert (
+        services.task_runner.recovery_controller
+        is services.recovery_controller
+    )
+
+
+def test_runtime_services_task_runner_executes_successful_task(
+    tmp_path,
+):
+    store = RuntimeStateStore(tmp_path / "runtime.db")
+    services = RuntimeServices.create(store)
+
+    result = services.task_runner.run(
+        task_id="service-task-1",
+        execute=lambda: "service success",
+        fingerprint="service-task-1",
+    )
+
+    assert result.response == "service success"
+    assert result.task.status == "completed"
+    assert result.task.success is True
+
+
+def test_runtime_services_task_runner_handles_recoverable_failure(
+    tmp_path,
+):
+    store = RuntimeStateStore(tmp_path / "runtime.db")
+    services = RuntimeServices.create(store)
+
+    result = services.task_runner.run(
+        task_id="service-task-2",
+        execute=lambda: (_ for _ in ()).throw(
+            ValueError("malformed state detected")
+        ),
+        fingerprint="state:service-task-2",
+        recover=lambda: True,
+    )
+
+    assert result.task.status == "completed"
+    assert result.task.success is True
+    assert result.recovery is not None
+    assert result.recovery.recovered is True

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from uuid import uuid4
 import re
 
 from core.context import ContextManager
@@ -11,6 +12,7 @@ from tools.language_detector import LanguageDetector
 from experience.learning_orchestrator import UnifiedLearningRouter
 from experience.governed_strategy_router import GovernedStrategyRouter
 from experience.learning_signal import LearningSignal
+from core.task_supervisor import TaskExecution, TaskSupervisor
 
 
 @dataclass
@@ -334,6 +336,67 @@ class Orchestrator:
             request.difficulty,
             512,
         )
+
+
+    def handle_supervised(
+        self,
+        user_input: str,
+        *,
+        task_id: str | None = None,
+        learning_signals: tuple[LearningSignal, ...]
+        | list[LearningSignal] = (),
+        utility_by_strategy: dict[str, float] | None = None,
+        baseline_score_by_strategy: dict[str, float] | None = None,
+        task_family: str | None = None,
+        allow_cross_task: bool = False,
+    ) -> tuple[str, TaskExecution]:
+        """
+        Execute one top-level request under TaskSupervisor control.
+
+        The existing handle() contract remains unchanged.
+        """
+        supervisor = TaskSupervisor()
+
+        resolved_task_id = (
+            task_id
+            or f"task-{uuid4().hex}"
+        )
+
+        supervisor.create(resolved_task_id)
+        supervisor.start(resolved_task_id)
+
+        try:
+            response = self.handle(
+                user_input,
+                learning_signals=learning_signals,
+                utility_by_strategy=utility_by_strategy,
+                baseline_score_by_strategy=baseline_score_by_strategy,
+                task_family=task_family,
+                allow_cross_task=allow_cross_task,
+            )
+
+        except KeyboardInterrupt:
+            execution = supervisor.stop(
+                resolved_task_id,
+                "task interrupted",
+            )
+            return "", execution
+
+        except Exception as exc:
+            execution = supervisor.fail(
+                resolved_task_id,
+                f"top-level task failed: {exc}",
+            )
+            raise RuntimeError(
+                f"MyAI task {resolved_task_id} failed"
+            ) from exc
+
+        execution = supervisor.complete(
+            resolved_task_id,
+        )
+
+        return response, execution
+
 
     def handle(
         self,

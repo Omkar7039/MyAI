@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.runtime_diagnostics import RuntimeDiagnostics
+from core.task_supervisor import TaskSupervisor
 
 from core.runtime_diagnostics import RuntimeDiagnosticsChecker
 from core.runtime_state import RuntimeStateStore
@@ -10,6 +11,8 @@ from experience.learning_state_retention import (
     LearningStateRetentionManager,
 )
 from experience.persistent_learning_state import PersistentLearningState
+from core.runtime_recovery_controller import RuntimeRecoveryController
+from core.supervised_task_runner import SupervisedTaskRunner
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,9 @@ class RuntimeServices:
     learning_state: PersistentLearningState
     diagnostics: RuntimeDiagnosticsChecker
     retention: LearningStateRetentionManager
+    task_supervisor: TaskSupervisor
+    recovery_controller: RuntimeRecoveryController
+    task_runner: SupervisedTaskRunner
 
     def status_snapshot(self) -> RuntimeStatusSnapshot:
         """
@@ -125,6 +131,8 @@ class RuntimeServices:
     ) -> "RuntimeServices":
         runtime_store = store or RuntimeStateStore()
         learning_state = PersistentLearningState(runtime_store)
+        task_supervisor = TaskSupervisor()
+        recovery_controller = RuntimeRecoveryController()
 
         return cls(
             store=runtime_store,
@@ -136,5 +144,11 @@ class RuntimeServices:
             retention=LearningStateRetentionManager(
                 learning_state,
                 max_rollback_entries=max_rollback_entries,
+            ),
+            task_supervisor=task_supervisor,
+            recovery_controller=recovery_controller,
+            task_runner=SupervisedTaskRunner(
+                supervisor=task_supervisor,
+                recovery_controller=recovery_controller,
             ),
         )
