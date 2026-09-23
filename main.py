@@ -49,12 +49,104 @@ def handle_runtime_command(command, services):
             "Last exit code: "
             f"{snapshot.last_exit_code}"
         )
+        print(
+            "Last task resume: "
+            f"unfinished={snapshot.resume_total_unfinished}, "
+            f"requeued={snapshot.resume_requeued}, "
+            f"reconciled={snapshot.resume_reconciled}, "
+            f"failed={snapshot.resume_failed}"
+        )
 
         if snapshot.issues:
             for issue in snapshot.issues:
                 print(f"Diagnostic: {issue}")
 
         print()
+        return True
+
+    if command == "/task-retention":
+        report = services.preview_task_queue_retention()
+
+        print()
+        print("Task queue retention preview:")
+        print(
+            "Terminal tasks: "
+            f"{report.existing_terminal_tasks}"
+        )
+        print(
+            "Terminal tasks retained: "
+            f"{report.retained_terminal_tasks}"
+        )
+        print(
+            "Terminal tasks to prune: "
+            f"{report.pruned_terminal_tasks}"
+        )
+        print(
+            "Active tasks preserved: "
+            f"{report.active_tasks}"
+        )
+        print()
+
+        return True
+
+    if command == "/task-retention apply":
+        report = services.apply_task_queue_retention()
+
+        print()
+        print("Task queue retention applied:")
+        print(
+            "Terminal tasks scanned: "
+            f"{report.existing_terminal_tasks}"
+        )
+        print(
+            "Terminal tasks retained: "
+            f"{report.retained_terminal_tasks}"
+        )
+        print(
+            "Terminal tasks pruned: "
+            f"{report.pruned_terminal_tasks}"
+        )
+        print(
+            "Active tasks preserved: "
+            f"{report.active_tasks}"
+        )
+        print()
+
+        return True
+
+    if command == "/resume":
+        report = services.resume_report()
+
+        print()
+        print("Last task resume report:")
+
+        if report is None:
+            print("No task resume report available.")
+        else:
+            print(f"Recovered at: {report.recovered_at}")
+            print(f"Unfinished: {report.total_unfinished}")
+            print(f"Requeued: {report.requeued}")
+            print(f"Reconciled: {report.reconciled}")
+            print(f"Failed: {report.failed}")
+
+            if report.actions:
+                print("Actions:")
+                for action in report.actions:
+                    print(
+                        f"  {action.task_id}: "
+                        f"{action.action} — {action.reason}"
+                    )
+
+        print()
+        return True
+
+    if command == "/resume clear":
+        services.clear_resume_report()
+
+        print()
+        print("Task resume report cleared.")
+        print()
+
         return True
 
     if command == "/retention":
@@ -159,6 +251,19 @@ def main():
 
     recovery = services.recover_learning_state_if_needed()
 
+    task_resume = services.recover_tasks_if_needed(
+        previous_clean_shutdown=startup.previous_clean_shutdown,
+    )
+
+    if task_resume is not None:
+        print(
+            "[MyAI] Task resume recovery: "
+            f"{task_resume.total_unfinished} unfinished, "
+            f"{task_resume.requeued} requeued, "
+            f"{task_resume.reconciled} reconciled, "
+            f"{task_resume.failed} failed."
+        )
+
     if recovery is not None and recovery.recovered:
         print(
             "[MyAI] Persisted learning state was malformed and "
@@ -191,6 +296,10 @@ def main():
     print("  /status - show runtime status")
     print("  /retention - preview learning retention")
     print("  /retention apply - apply learning retention")
+    print("  /resume - show last task resume report")
+    print("  /resume clear - clear task resume report")
+    print("  /task-retention - preview task queue retention")
+    print("  /task-retention apply - apply task queue retention")
     print("  /exit   - exit MyAI")
     print("  Ctrl+C  - emergency stop")
     print()

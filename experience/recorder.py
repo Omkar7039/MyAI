@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from hashlib import sha256
 
 from experience.feedback import ExperienceFeedbackEngine
+from experience.provenance import ExperienceProvenance
 from experience.quality import ExperienceQualityChecker
 from experience.store import Experience, ExperienceStore
 
@@ -16,6 +18,7 @@ class RepairExperience:
     success: bool
     lesson: str
     metadata: str = ""
+    provenance: ExperienceProvenance | None = None
 
 
 class ExperienceRecorder:
@@ -44,6 +47,7 @@ class ExperienceRecorder:
         success: bool,
         lesson: str,
         metadata: str = "",
+        provenance: ExperienceProvenance | None = None,
     ) -> Experience:
         experience = RepairExperience(
             task=task,
@@ -52,6 +56,7 @@ class ExperienceRecorder:
             success=success,
             lesson=lesson,
             metadata=metadata,
+            provenance=provenance,
         )
 
         return self.record(experience)
@@ -97,12 +102,30 @@ class ExperienceRecorder:
             outcome=experience.outcome,
             success=experience.success,
             lesson=feedback.improved_lesson,
-            metadata=experience.metadata,
+            metadata=self._metadata_with_provenance(experience),
         )
 
         self.store.add(stored)
 
         return stored
+
+    @staticmethod
+    def _metadata_with_provenance(
+        experience: RepairExperience,
+    ) -> str:
+        if experience.provenance is None:
+            return experience.metadata
+
+        payload = {
+            "metadata": experience.metadata,
+            "provenance": experience.provenance.to_metadata(),
+        }
+
+        return json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     @staticmethod
     def _make_id(

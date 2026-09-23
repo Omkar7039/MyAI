@@ -1,0 +1,25 @@
+from pathlib import Path
+
+path = Path("tests/test_tool_agent_policy_gate.py")
+text = path.read_text()
+
+old = (
+    "from core.tool_agent_instruction_validator import "
+    "ToolAgentInstructionValidator\n"
+)
+
+new = """from core.tool_agent_instruction_validator import (
+    ToolAgentInstructionValidator,
+    ValidatedToolInstruction,
+)
+"""
+
+if old not in text:
+    raise SystemExit(
+        "ERROR: Expected import line was not found."
+    )
+
+text = text.replace(old, new, 1)
+
+path.write_text(text)
+print("Fixed validator imports.")

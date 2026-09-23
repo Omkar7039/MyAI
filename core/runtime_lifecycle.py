@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from core.runtime_state import RuntimeStateStore
 
@@ -30,8 +31,11 @@ class RuntimeLifecycle:
 
     def __init__(
         self,
-        store: RuntimeStateStore | None = None,
+        store: RuntimeStateStore | str | Path | None = None,
     ):
+        if isinstance(store, (str, Path)):
+            store = RuntimeStateStore(store)
+
         self.store = store or RuntimeStateStore()
 
     def startup(self) -> RuntimeStartup:

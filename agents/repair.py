@@ -30,10 +30,7 @@ class RepairAgent:
             self.runner_manager
         )
 
-        self.test_strengthener = TestStrengthener(
-            model,
-            self.mutation_engine,
-        )
+        self.test_strengthener = TestStrengthener()
 
         self.property_engine = PropertyEngine(
             self.runner_manager
