@@ -1,0 +1,5 @@
+# MyAI runtime dependencies
+mlx-lm==0.31.3
+prompt-toolkit==3.0.53
+rich==15.0.0
+PyYAML==6.0.3
