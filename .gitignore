@@ -32,3 +32,7 @@ data/memory.db-*
 # Local MyAI experience memory database
 data/experience.db
 data/experience.db-*
+
+# Runtime databases
+data/runtime_state.db
+data/runtime_recovery_audit.db
